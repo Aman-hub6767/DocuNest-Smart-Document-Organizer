@@ -1,4 +1,4 @@
-/* DocuNest - Phase 5 styles */
+/* DocuNest - Phase 6 styles */
 
 /* ---------- Colors (ek jagah, baad mein easily change) ---------- */
 :root {
@@ -147,6 +147,16 @@ body {
 .btn-primary:focus {
   background-color: var(--primary-dark);
   border-color: var(--primary-dark);
+}
+
+.btn-outline-primary {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.btn-outline-primary:hover {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
 }
 
 /* ---------- Stat cards ---------- */
@@ -303,7 +313,7 @@ body {
   font-weight: 500;
 }
 
-/* ---------- Tags aur notes (NAYA - Phase 5) ---------- */
+/* ---------- Tags aur notes ---------- */
 .doc-tags {
   margin-top: 0.35rem;
 }
@@ -329,7 +339,7 @@ body {
   text-overflow: ellipsis;
 }
 
-/* ---------- Card ke action buttons (NAYA - Phase 5) ---------- */
+/* ---------- Card ke action buttons ---------- */
 .doc-actions {
   display: flex;
   gap: 0.25rem;
@@ -385,6 +395,76 @@ body {
   font-size: 0.85rem;
   color: var(--muted-color);
   white-space: nowrap;
+}
+
+/* ---------- Preview popup (NAYA - Phase 6) ---------- */
+.preview-area {
+  min-height: 300px;
+  max-height: 70vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #f9fafb;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+/* Image apne aspect ratio mein rahegi (stretch nahi hogi) */
+.preview-image {
+  max-width: 100%;
+  max-height: 65vh;
+  object-fit: contain;
+}
+
+/* PDF ka page (canvas) screen ki width mein fit hoga */
+.preview-canvas {
+  max-width: 100%;
+  height: auto;
+  background-color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.pdf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.pdf-page-label {
+  font-size: 0.9rem;
+  color: var(--muted-color);
+}
+
+.preview-text {
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.9rem;
+}
+
+.preview-message {
+  text-align: center;
+  color: var(--muted-color);
+  max-width: 420px;
+}
+
+/* File information list */
+.info-label {
+  font-size: 0.8rem;
+  color: var(--muted-color);
+  margin-bottom: 0;
+}
+
+.info-value {
+  margin-bottom: 0.75rem;
+  word-break: break-word;
 }
 
 /* ---------- Tablet / Mobile (992px se chhoti screen) ---------- */
