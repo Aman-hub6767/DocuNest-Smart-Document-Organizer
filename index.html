@@ -1,23 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DocuNest - Smart Document Organizer</title>
 
   <!-- Bootstrap 5 CSS (CDN) -->
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-    rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
   <!-- Bootstrap Icons (CDN) -->
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
-    rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
-  <!-- Hamara apna CSS (Bootstrap ke BAAD) -->
+  <!-- Our own CSS (must come AFTER Bootstrap) -->
   <link href="style.css" rel="stylesheet">
 </head>
+
 <body>
 
   <div class="app-layout">
@@ -47,18 +45,19 @@
 
       <div class="sidebar-footer">
         <i class="bi bi-info-circle"></i>
-        Documents sirf is browser mein save hote hain. Cloud mein nahi.
+        Documents are stored only in this browser, not in the cloud.
+        Clearing browser data can delete them.
       </div>
 
     </aside>
 
-    <!-- Mobile par sidebar khulne par peeche ka dark parda -->
+    <!-- Dark layer behind the sidebar on mobile -->
     <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
 
     <!-- ========== MAIN AREA ========== -->
     <div class="main-area">
 
-      <!-- Top bar (mobile par menu button yahan dikhta hai) -->
+      <!-- Top bar (the menu button is shown here on mobile) -->
       <header class="topbar">
         <button id="menu-button" class="menu-button" type="button" aria-label="Open menu">
           <i class="bi bi-list"></i>
@@ -68,7 +67,7 @@
 
       <main class="content">
 
-        <!-- Success / error messages yahan dikhenge -->
+        <!-- Success / error messages appear here -->
         <div id="message-area"></div>
 
         <!-- Page title + Import button -->
@@ -76,7 +75,7 @@
           <div>
             <h1 id="page-title" class="page-title">All Documents</h1>
             <p id="page-description" class="page-description">
-              Apne saare documents yahan dekho aur manage karo.
+              View and manage all your documents here.
             </p>
           </div>
           <button class="btn btn-primary import-button" type="button">
@@ -84,30 +83,25 @@
           </button>
         </div>
 
-        <!-- Import ke rules -->
+        <!-- Import rules -->
         <p class="small text-muted mb-3">
-          Supported: PDF, PNG, JPG, JPEG, TXT | Limit: 20 MB per file, 100 MB total.
-          Browser ki storage limit alag-alag browsers mein alag hoti hai.
+          Supported: PDF, PNG, JPG, JPEG, TXT | Limit: 100 MB per file, 1000 MB total.
+          The real browser storage limit can differ between browsers.
         </p>
 
-        <!-- Database na khule to ye error yahan dikhega -->
+        <!-- If the database cannot open, the error appears here -->
         <div id="db-error" class="alert alert-danger d-none" role="alert"></div>
 
-        <!-- Import chal raha ho to ye loading box dikhega -->
+        <!-- Loading box shown while importing -->
         <div id="import-status" class="d-none">
           <div class="alert alert-info d-flex align-items-center" role="status">
             <div class="spinner-border spinner-border-sm me-2" aria-hidden="true"></div>
-            <span id="import-status-text">Import ho raha hai...</span>
+            <span id="import-status-text">Importing...</span>
           </div>
         </div>
 
-        <!-- Hidden file input: Import button isse kholta hai -->
-        <input
-          id="file-input"
-          type="file"
-          class="d-none"
-          multiple
-          accept=".pdf,.png,.jpg,.jpeg,.txt">
+        <!-- Hidden file input: the Import button opens it -->
+        <input id="file-input" type="file" class="d-none" multiple accept=".pdf,.png,.jpg,.jpeg,.txt">
 
         <!-- Stat cards -->
         <div class="row g-3 mb-4">
@@ -134,7 +128,7 @@
               <div class="stat-icon"><i class="bi bi-tags"></i></div>
               <div>
                 <div id="category-count" class="stat-number">0</div>
-                <div class="stat-label">Categories</div>
+                <div class="stat-label">Categories in use</div>
               </div>
             </div>
           </div>
@@ -153,15 +147,11 @@
         <div class="filter-box">
           <div class="input-group mb-3">
             <span class="input-group-text"><i class="bi bi-search"></i></span>
-            <input
-              id="search-input"
-              type="text"
-              class="form-control"
-              placeholder="Naam, tag, category ya notes se search karo..."
-              aria-label="Search documents">
+            <input id="search-input" type="text" class="form-control"
+              placeholder="Search by name, tag, category or notes..." aria-label="Search documents">
           </div>
 
-          <!-- Category buttons JavaScript se banenge -->
+          <!-- Category buttons are created by JavaScript -->
           <div id="category-filters" class="chip-row"></div>
         </div>
 
@@ -169,7 +159,7 @@
         <section class="section-box">
           <h2 class="section-title">Recently Added</h2>
           <div id="recent-list">
-            <p class="text-muted mb-0">Abhi koi document add nahi hua.</p>
+            <p class="text-muted mb-0">No documents have been added yet.</p>
           </div>
         </section>
 
@@ -177,32 +167,32 @@
         <section class="section-box">
           <h2 class="section-title">Your Documents</h2>
 
-          <!-- Kitne documents dikh rahe hain -->
+          <!-- How many documents are showing -->
           <p id="result-info" class="small text-muted"></p>
 
-          <!-- Empty state: jab ek bhi document nahi hai -->
+          <!-- Empty state: shown when there are no documents at all -->
           <div id="empty-state" class="empty-state">
             <i class="bi bi-inbox empty-icon"></i>
-            <h3 class="empty-title">Abhi koi document nahi hai</h3>
+            <h3 class="empty-title">No documents yet</h3>
             <p class="empty-text">
-              PDF, PNG, JPG ya TXT file import karke shuru karo.
+              Import a PDF, PNG, JPG or TXT file to get started.
             </p>
             <button class="btn btn-primary import-button" type="button">
               <i class="bi bi-upload me-1"></i> Import Document
             </button>
           </div>
 
-          <!-- No results: documents hain, par search/filter se koi match nahi hua -->
+          <!-- No results: documents exist, but the search or filter matches none -->
           <div id="no-results" class="empty-state d-none">
             <i class="bi bi-search empty-icon"></i>
-            <h3 id="no-results-title" class="empty-title">Koi document nahi mila</h3>
+            <h3 id="no-results-title" class="empty-title">No documents found</h3>
             <p id="no-results-text" class="empty-text"></p>
             <button id="clear-filters-button" class="btn btn-outline-primary" type="button">
-              Search aur filter hatao
+              Clear search and filters
             </button>
           </div>
 
-          <!-- Document cards JavaScript se yahan aayenge -->
+          <!-- Document cards are added here by JavaScript -->
           <div id="document-grid" class="row g-3 d-none"></div>
         </section>
 
@@ -211,20 +201,18 @@
   </div>
 
   <!-- ========== EDIT POPUP ========== -->
-  <div class="modal fade" id="edit-modal" tabindex="-1"
-       aria-labelledby="edit-modal-title" aria-hidden="true">
+  <div class="modal fade" id="edit-modal" tabindex="-1" aria-labelledby="edit-modal-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
 
         <div class="modal-header">
           <h2 class="modal-title fs-5" id="edit-modal-title">Edit Document</h2>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"
-                  aria-label="Close"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
 
         <div class="modal-body">
 
-          <!-- Galti hone par message yahan dikhega -->
+          <!-- Error message appears here -->
           <div id="edit-error" class="alert alert-danger d-none" role="alert"></div>
 
           <div class="mb-3">
@@ -239,11 +227,10 @@
 
           <div class="mb-3">
             <label for="edit-tags" class="form-label">Tags</label>
-            <input id="edit-tags" type="text" class="form-control"
-                   placeholder="jaise: resume, 2026, important">
+            <input id="edit-tags" type="text" class="form-control" placeholder="e.g. resume, 2026, important">
             <div class="form-text">
-              Tags ko comma (,) se alag karo. Max 10 tags, har tag max 20 letters.
-              Tag hatane ke liye usse text se mita do.
+              Separate tags with commas. Maximum 10 tags, each up to 20 characters.
+              To remove a tag, delete it from the text.
             </div>
           </div>
 
@@ -267,16 +254,14 @@
     </div>
   </div>
 
-  <!-- ========== PREVIEW POPUP (NAYA - Phase 6) ========== -->
-  <div class="modal fade" id="preview-modal" tabindex="-1"
-       aria-labelledby="preview-modal-title" aria-hidden="true">
+  <!-- ========== PREVIEW POPUP ========== -->
+  <div class="modal fade" id="preview-modal" tabindex="-1" aria-labelledby="preview-modal-title" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable modal-fullscreen-md-down">
       <div class="modal-content">
 
         <div class="modal-header">
           <h2 class="modal-title fs-5 text-truncate" id="preview-modal-title">Preview</h2>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"
-                  aria-label="Close"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
 
         <div class="modal-body">
@@ -287,7 +272,7 @@
               <div id="preview-area" class="preview-area"></div>
             </div>
 
-            <!-- Right: file ki details -->
+            <!-- Right: file information -->
             <div class="col-12 col-lg-4">
               <h3 class="fs-6 fw-semibold mb-3">File information</h3>
               <dl id="preview-info" class="info-list mb-0"></dl>
@@ -309,17 +294,76 @@
     </div>
   </div>
 
+  <!-- ========== BACKUP POPUP (NEW - Phase 7) ========== -->
+  <div class="modal fade" id="backup-modal" tabindex="-1" aria-labelledby="backup-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+
+        <div class="modal-header">
+          <h2 class="modal-title fs-5" id="backup-modal-title">Backup and Restore</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body">
+
+          <div class="alert alert-warning" role="note">
+            <strong>Important:</strong> Your documents are stored only in this browser.
+            If you clear the browser's site data, they are deleted permanently.
+            Keep your original files on your computer.
+          </div>
+
+          <h3 class="fs-6 fw-semibold">What does the backup contain?</h3>
+          <p class="small mb-2">
+            <strong>Included:</strong> names, categories, tags, notes, favorites,
+            file sizes and dates.<br>
+            <strong>Not included:</strong> the actual files (PDF, images, text).
+          </p>
+          <p id="backup-summary" class="small text-muted"></p>
+
+          <div class="d-grid gap-2 mb-3">
+            <button id="export-button" type="button" class="btn btn-primary">
+              <i class="bi bi-download me-1"></i> Export metadata (JSON)
+            </button>
+            <button id="restore-button" type="button" class="btn btn-outline-primary">
+              <i class="bi bi-upload me-1"></i> Restore metadata from JSON
+            </button>
+          </div>
+
+          <!-- Hidden file input for restore -->
+          <input id="restore-input" type="file" class="d-none" accept=".json,application/json">
+
+          <!-- Result message appears here -->
+          <div id="backup-result"></div>
+
+          <p class="form-text mt-3 mb-0">
+            Restore applies the saved details to documents that are already in DocuNest.
+            A backup entry matches a document when the original file name and the file
+            size are the same. You will be asked to confirm before anything changes.
+            Restore does not bring back deleted files.
+          </p>
+
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+            Close
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- Bootstrap JS (CDN) -->
-  <script
-    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
   </script>
 
-  <!-- PDF.js (CDN) - PDF preview ke liye. Version 3.11.174 -->
-  <script
-    src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
+  <!-- PDF.js (CDN) - used for PDF preview. Version 3.11.174 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
   </script>
 
-  <!-- Hamara apna JavaScript (sabse last mein) -->
+  <!-- Our own JavaScript (always last) -->
   <script src="script.js"></script>
 </body>
+
 </html>

@@ -1,6 +1,6 @@
-/* DocuNest - Phase 6 styles */
+/* DocuNest - Phase 7 styles */
 
-/* ---------- Colors (ek jagah, baad mein easily change) ---------- */
+/* ---------- Colors (defined once, easy to change later) ---------- */
 :root {
   --primary-color: #4f46e5;
   --primary-dark: #4338ca;
@@ -20,7 +20,7 @@ body {
 
 /* ---------- Layout ---------- */
 .main-area {
-  margin-left: var(--sidebar-width);  /* sidebar ke liye jagah */
+  margin-left: var(--sidebar-width);  /* leaves space for the sidebar */
   min-height: 100vh;
 }
 
@@ -81,7 +81,7 @@ body {
 }
 
 .sidebar-footer {
-  margin-top: auto;               /* footer ko neeche push karta hai */
+  margin-top: auto;               /* pushes the footer to the bottom */
   font-size: 0.8rem;
   color: var(--muted-color);
   background-color: var(--background-color);
@@ -89,7 +89,7 @@ body {
   padding: 0.75rem;
 }
 
-/* ---------- Top bar (sirf mobile par dikhega) ---------- */
+/* ---------- Top bar (shown on mobile only) ---------- */
 .topbar {
   display: none;
   align-items: center;
@@ -114,6 +114,15 @@ body {
 
 .sidebar-backdrop {
   display: none;
+}
+
+/* ---------- Keyboard focus outline (NEW - Phase 7) ---------- */
+.nav-item:focus-visible,
+.chip:focus-visible,
+.icon-button:focus-visible,
+.menu-button:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
 /* ---------- Page header ---------- */
@@ -286,7 +295,7 @@ body {
   flex-shrink: 0;
 }
 
-/* min-width: 0 se lamba naam "..." mein kat jata hai, card ke bahar nahi nikalta */
+/* min-width: 0 lets a long name shrink to "..." instead of overflowing the card */
 .doc-info {
   flex: 1;
   min-width: 0;
@@ -313,7 +322,7 @@ body {
   font-weight: 500;
 }
 
-/* ---------- Tags aur notes ---------- */
+/* ---------- Tags and notes ---------- */
 .doc-tags {
   margin-top: 0.35rem;
 }
@@ -339,7 +348,7 @@ body {
   text-overflow: ellipsis;
 }
 
-/* ---------- Card ke action buttons ---------- */
+/* ---------- Card action buttons ---------- */
 .doc-actions {
   display: flex;
   gap: 0.25rem;
@@ -362,7 +371,7 @@ body {
 }
 
 .icon-button.favorite-on {
-  color: #f59e0b;      /* star ka peela rang */
+  color: #f59e0b;      /* yellow star */
 }
 
 .icon-button.danger:hover {
@@ -397,7 +406,7 @@ body {
   white-space: nowrap;
 }
 
-/* ---------- Preview popup (NAYA - Phase 6) ---------- */
+/* ---------- Preview popup ---------- */
 .preview-area {
   min-height: 300px;
   max-height: 70vh;
@@ -412,14 +421,14 @@ body {
   padding: 1rem;
 }
 
-/* Image apne aspect ratio mein rahegi (stretch nahi hogi) */
+/* The image keeps its aspect ratio (it is not stretched) */
 .preview-image {
   max-width: 100%;
   max-height: 65vh;
   object-fit: contain;
 }
 
-/* PDF ka page (canvas) screen ki width mein fit hoga */
+/* The PDF page (canvas) fits the screen width */
 .preview-canvas {
   max-width: 100%;
   height: auto;
@@ -467,16 +476,16 @@ body {
   word-break: break-word;
 }
 
-/* ---------- Tablet / Mobile (992px se chhoti screen) ---------- */
+/* ---------- Tablet / Mobile (screens smaller than 992px) ---------- */
 @media (max-width: 991px) {
 
-  /* Sidebar default mein screen ke bahar chhupa rahega */
+  /* The sidebar is hidden off-screen by default */
   .sidebar {
     transform: translateX(-100%);
     transition: transform 0.25s;
   }
 
-  /* "open" class lagne par sidebar andar aa jayega */
+  /* Adding the "open" class slides the sidebar in */
   .sidebar.open {
     transform: translateX(0);
   }
@@ -493,7 +502,7 @@ body {
     padding: 1rem;
   }
 
-  /* Sidebar khulne par peeche ka dark parda */
+  /* Dark layer behind the open sidebar */
   .sidebar-backdrop.show {
     display: block;
     position: fixed;
@@ -503,5 +512,27 @@ body {
     bottom: 0;
     background-color: rgba(0, 0, 0, 0.4);
     z-index: 999;
+  }
+}
+
+/* ---------- Small phones (screens smaller than 576px) (NEW - Phase 7) ---------- */
+@media (max-width: 575px) {
+
+  .content {
+    padding: 0.75rem;
+  }
+
+  .filter-box,
+  .section-box {
+    padding: 0.9rem;
+  }
+
+  /* The Import button becomes full width, easier to tap */
+  .page-header .btn {
+    width: 100%;
+  }
+
+  .page-title {
+    font-size: 1.4rem;
   }
 }

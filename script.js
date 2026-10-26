@@ -1,72 +1,72 @@
-// DocuNest - Phase 6 script
-// UI + IndexedDB + Import + Organization + Search/Filters + Preview
+// DocuNest - Phase 7 script
+// UI + IndexedDB + Import + Organization + Search/Filters + Preview + Backup
 
 // ====================================================
-// PART 1: DATA AUR SETTINGS
+// PART 1: DATA AND SETTINGS
 // ====================================================
 
-// Hamari categories ki list
+// The list of categories
 const categories = ["Education", "Certificates", "Personal", "Work", "Finance", "Other"];
 
-// Har sidebar menu ka title aur description
+// Title and description for each sidebar view
 const pageInfo = {
   all: {
     title: "All Documents",
-    description: "Apne saare documents yahan dekho aur manage karo."
+    description: "View and manage all your documents here."
   },
   favorites: {
     title: "Favorites",
-    description: "Jin documents par star lagaya hai, wo yahan dikhenge."
+    description: "Documents you marked with a star appear here."
   },
   recent: {
     title: "Recent Documents",
-    description: "Jo documents aapne khole hain, wo yahan dikhenge (sabse naya pehle)."
-  },
-  backup: {
-    title: "Backup",
-    description: "Documents ki details ka backup yahan se milega."
+    description: "Documents you opened appear here (most recent first)."
   }
 };
 
-// Import ke rules
+// Import rules
 const ALLOWED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "txt"];
-const MAX_FILE_SIZE = 20 * 1024 * 1024;         // ek file ki limit: 20 MB (bytes mein)
-const MAX_TOTAL_STORAGE = 100 * 1024 * 1024;    // DocuNest ki total limit: 100 MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024;         // limit for one file: 20 MB (in bytes)
+const MAX_TOTAL_STORAGE = 1000 * 1024 * 1024;    // total DocuNest limit: 100 MB
 const STORAGE_LIMIT_TEXT = Math.round(MAX_TOTAL_STORAGE / (1024 * 1024)) + " MB";
 
-// Tags ke rules
-const MAX_TAGS = 10;          // ek document par max 10 tags
-const MAX_TAG_LENGTH = 20;    // ek tag max 20 letters
+// Tag rules
+const MAX_TAGS = 10;          // up to 10 tags per document
+const MAX_TAG_LENGTH = 20;    // up to 20 characters per tag
 
-// TXT preview mein max itne characters dikhayenge (bahut badi file se page na atke)
+// The TXT preview shows at most this many characters (keeps the page fast)
 const MAX_TEXT_PREVIEW = 200000;
 
-// PDF.js ka worker file (PDF.js ka background helper)
+// PDF.js worker file (PDF.js background helper)
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-// ---------- Jo cheezein badalti rehti hain (state) ----------
+// Backup rules (NEW)
+const BACKUP_VERSION = 1;                       // backup format version
+const MAX_BACKUP_FILE_SIZE = 5 * 1024 * 1024;   // a metadata backup should be far smaller than 5 MB
 
-let allDocuments = [];          // database ke saare documents
-let currentView = "all";        // "all", "favorites" ya "recent"
+// ---------- Values that change while the app runs (state) ----------
+
+let allDocuments = [];          // all documents from the database
+let currentView = "all";        // "all", "favorites" or "recent"
 let selectedCategory = "All";   // category filter
-let searchText = "";            // search box ka text (chhote letters mein)
-let searchTimer = null;         // search ka timer (debounce ke liye)
-let editingId = null;           // edit popup mein kaunsa document hai
+let searchText = "";            // text in the search box (lowercase)
+let searchTimer = null;         // timer used for the search delay (debounce)
+let editingId = null;           // which document is open in the edit popup
 
-// Preview popup ki state
-let previewRecord = null;       // abhi kaunsa document preview ho raha hai
-let previewToken = 0;           // har preview ka number (purane kaam ko rokne ke liye)
-let currentObjectUrl = null;    // image ka temporary URL (baad mein revoke karna hai)
-let currentPdf = null;          // khula hua PDF
-let currentPageNumber = 1;      // PDF ka current page
-let isRenderingPage = false;    // PDF page ban raha hai ya nahi
+// Preview popup state
+let previewRecord = null;       // the document being previewed
+let previewToken = 0;           // a number for each preview (to stop old work)
+let currentObjectUrl = null;    // temporary image URL (must be revoked later)
+let currentPdf = null;          // the open PDF
+let currentPageNumber = 1;      // current PDF page
+let isRenderingPage = false;    // is a PDF page being drawn right now?
 let pdfCanvas = null;
 let pdfPrevButton = null;
 let pdfNextButton = null;
 let pdfPageLabel = null;
 
 // ====================================================
-// PART 2: HTML ELEMENTS PAKADNA
+// PART 2: GETTING HTML ELEMENTS
 // ====================================================
 
 const sidebar = document.getElementById("sidebar");
@@ -91,7 +91,7 @@ const recentList = document.getElementById("recent-list");
 const emptyState = document.getElementById("empty-state");
 const documentGrid = document.getElementById("document-grid");
 
-// Search aur filter ke elements (NAYA)
+// Search and filter elements
 const searchInput = document.getElementById("search-input");
 const resultInfo = document.getElementById("result-info");
 const noResults = document.getElementById("no-results");
@@ -99,7 +99,7 @@ const noResultsTitle = document.getElementById("no-results-title");
 const noResultsText = document.getElementById("no-results-text");
 const clearFiltersButton = document.getElementById("clear-filters-button");
 
-// Edit popup ke elements
+// Edit popup elements
 const editModalElement = document.getElementById("edit-modal");
 const editModal = new bootstrap.Modal(editModalElement);
 const editError = document.getElementById("edit-error");
@@ -109,7 +109,7 @@ const editTags = document.getElementById("edit-tags");
 const editNotes = document.getElementById("edit-notes");
 const editSaveButton = document.getElementById("edit-save-button");
 
-// Preview popup ke elements (NAYA)
+// Preview popup elements
 const previewModalElement = document.getElementById("preview-modal");
 const previewModal = new bootstrap.Modal(previewModalElement);
 const previewTitle = document.getElementById("preview-modal-title");
@@ -117,17 +117,25 @@ const previewArea = document.getElementById("preview-area");
 const previewInfo = document.getElementById("preview-info");
 const downloadButton = document.getElementById("download-button");
 
-// PDF.js ko worker ka address batao (agar library load hui hai)
+// Backup popup elements (NEW)
+const backupModal = new bootstrap.Modal(document.getElementById("backup-modal"));
+const backupSummary = document.getElementById("backup-summary");
+const backupResult = document.getElementById("backup-result");
+const exportButton = document.getElementById("export-button");
+const restoreButton = document.getElementById("restore-button");
+const restoreInput = document.getElementById("restore-input");
+
+// Tell PDF.js where its worker file is (only if the library loaded)
 if (window.pdfjsLib) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL;
 }
 
 // ====================================================
-// PART 3: CHHOTE HELPER FUNCTIONS
+// PART 3: SMALL HELPER FUNCTIONS
 // ====================================================
 
-// Ek HTML element banata hai. text diya ho to textContent se lagata hai.
-// textContent safe hai: file ka naam kabhi HTML ki tarah nahi chalega.
+// Creates an HTML element. If text is given, it is set with textContent.
+// textContent is safe: a file name is never treated as HTML.
 function makeElement(tagName, className, text) {
   const element = document.createElement(tagName);
   element.className = className;
@@ -137,8 +145,8 @@ function makeElement(tagName, className, text) {
   return element;
 }
 
-// Success / error / info message dikhata hai (5 second baad hat jata hai)
-// type: "success", "danger", "warning" ya "info"
+// Shows a success / error / info message (disappears after 5 seconds)
+// type: "success", "danger", "warning" or "info"
 function showMessage(text, type) {
   const box = document.createElement("div");
   box.className = "alert alert-" + type + " alert-dismissible fade show";
@@ -162,7 +170,7 @@ function showMessage(text, type) {
   }, 5000);
 }
 
-// File ka size padhne layak banata hai: 1536 -> "1.5 KB"
+// Makes a file size readable: 1536 -> "1.5 KB"
 function formatSize(bytes) {
   if (bytes < 1024) {
     return bytes + " B";
@@ -173,7 +181,7 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-// Date ko padhne layak banata hai: "26 Oct 2026"
+// Makes a date readable: "26 Oct 2026"
 function formatDate(isoText) {
   return new Date(isoText).toLocaleDateString("en-IN", {
     day: "2-digit",
@@ -193,7 +201,7 @@ function formatDateTime(isoText) {
   });
 }
 
-// File ke naam se extension nikalta hai: "Resume.PDF" -> "pdf"
+// Gets the extension from a file name: "Resume.PDF" -> "pdf"
 function getExtension(fileName) {
   const dotIndex = fileName.lastIndexOf(".");
   if (dotIndex === -1) {
@@ -202,7 +210,7 @@ function getExtension(fileName) {
   return fileName.slice(dotIndex + 1).toLowerCase();
 }
 
-// Extension ke hisaab se icon ki class
+// Icon class for each file extension
 function getIconClass(extension) {
   if (extension === "pdf") {
     return "bi-file-earmark-pdf";
@@ -216,8 +224,8 @@ function getIconClass(extension) {
   return "bi-file-earmark";
 }
 
-// Saare documents ka total size (bytes mein) jodta hai
-// (doc.size || 0 = agar size na ho to 0 maano, taaki galti na aaye)
+// Adds up the size (in bytes) of all documents
+// (doc.size || 0 means: if there is no size, count 0, so nothing breaks)
 function getTotalSize(documents) {
   let totalBytes = 0;
   documents.forEach(function (doc) {
@@ -226,8 +234,25 @@ function getTotalSize(documents) {
   return totalBytes;
 }
 
+// Downloads a Blob as a file with the given name (used by Download and Export)
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  // Revoke the temporary URL a little later to free memory
+  setTimeout(function () {
+    URL.revokeObjectURL(url);
+  }, 1000);
+}
+
 // ====================================================
-// PART 4: SIDEBAR AUR MENU
+// PART 4: SIDEBAR AND MENU
 // ====================================================
 
 function openSidebar() {
@@ -243,14 +268,14 @@ function closeSidebar() {
 menuButton.addEventListener("click", openSidebar);
 sidebarBackdrop.addEventListener("click", closeSidebar);
 
-// Menu item dabane par view badalta hai (All / Favorites / Recent)
+// Clicking a menu item changes the view (All / Favorites / Recent)
 function selectNavItem(clickedItem) {
   const viewName = clickedItem.dataset.view;
 
-  // Backup abhi bana nahi hai, isliye sach batate hain
+  // "Backup" opens a popup instead of changing the view
   if (viewName === "backup") {
-    showMessage("Backup feature Phase 7 mein banayenge.", "info");
     closeSidebar();
+    openBackupModal();
     return;
   }
 
@@ -269,16 +294,16 @@ function selectNavItem(clickedItem) {
 
 navItems.forEach(function (item) {
   item.addEventListener("click", function (event) {
-    event.preventDefault();   // link ko page reload karne se rokta hai
+    event.preventDefault();   // stops the link from reloading the page
     selectNavItem(item);
   });
 });
 
 // ====================================================
-// PART 5: SEARCH AUR FILTERS (NAYA - PHASE 6)
+// PART 5: SEARCH AND FILTERS
 // ====================================================
 
-// Ek category ke kitne documents hain (sabhi documents mein se)
+// How many documents are in a category (out of all documents)
 function countByCategory(name) {
   if (name === "All") {
     return allDocuments.length;
@@ -288,7 +313,7 @@ function countByCategory(name) {
   }).length;
 }
 
-// Category buttons banata hai: All (5), Education (2), ...
+// Creates the category buttons: All (5), Education (2), ...
 function showCategoryButtons() {
   categoryFilters.innerHTML = "";
 
@@ -315,13 +340,13 @@ function showCategoryButtons() {
   });
 }
 
-// Category select karne par list filter hoti hai
+// Choosing a category filters the list
 function selectCategory(name) {
   selectedCategory = name;
   refreshView();
 }
 
-// Edit popup ke dropdown mein categories bharta hai
+// Fills the category dropdown in the edit popup
 function fillCategoryDropdown() {
   categories.forEach(function (name) {
     const option = document.createElement("option");
@@ -331,9 +356,9 @@ function fillCategoryDropdown() {
   });
 }
 
-// Kya ye document search text se match karta hai?
-// Naam, extension, category, notes aur tags mein dhoondhta hai.
-// (File ke ANDAR ke text mein search NAHI hota.)
+// Does this document match the search text?
+// It looks in the name, extension, category, notes and tags.
+// (It does NOT search inside the file content.)
 function matchesSearch(doc, text) {
   const searchIn = [
     doc.name,
@@ -346,9 +371,9 @@ function matchesSearch(doc, text) {
   return searchIn.includes(text);
 }
 
-// View + category + search teeno lagake, jo documents dikhane hain unki list banata hai
+// Applies view + category + search and returns the documents to display
 function getVisibleDocuments() {
-  let list = allDocuments.slice();   // copy (original list kharab na ho)
+  let list = allDocuments.slice();   // a copy, so the original list is not changed
 
   if (currentView === "favorites") {
     list = list.filter(function (doc) {
@@ -357,7 +382,7 @@ function getVisibleDocuments() {
   }
 
   if (currentView === "recent") {
-    // Sirf wo jo kabhi khole gaye hain, sabse haal ka pehle
+    // Only documents that were opened, most recently opened first
     list = list.filter(function (doc) {
       return doc.lastOpened;
     });
@@ -381,14 +406,13 @@ function getVisibleDocuments() {
   return list;
 }
 
-// Category buttons aur document list dobara banata hai
+// Rebuilds the category buttons and the document list
 function refreshView() {
   showCategoryButtons();
   showDocumentGrid(getVisibleDocuments());
 }
 
-// Search box mein likhne par (250ms ruk kar) list filter karo
-// Isse "debounce" kehte hain: har akshar par kaam nahi, likhna rukne par kaam
+// Search as you type, but wait 250 ms after the last key (this is called "debounce")
 searchInput.addEventListener("input", function () {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(function () {
@@ -397,7 +421,7 @@ searchInput.addEventListener("input", function () {
   }, 250);
 });
 
-// Search aur category filter hatata hai
+// Clears the search text and the category filter
 function clearFilters() {
   searchInput.value = "";
   searchText = "";
@@ -407,24 +431,24 @@ function clearFilters() {
 
 clearFiltersButton.addEventListener("click", clearFilters);
 
-// Jab koi document match na kare, to sahi message dikhata hai
+// Shows the right message when no document matches
 function showNoResultsMessage() {
   noResults.classList.remove("d-none");
 
   const noFilters = searchText === "" && selectedCategory === "All";
 
   if (currentView === "favorites" && noFilters) {
-    noResultsTitle.textContent = "Abhi koi favorite nahi hai";
-    noResultsText.textContent = "Kisi card par star dabao, wo yahan dikhega.";
+    noResultsTitle.textContent = "No favorites yet";
+    noResultsText.textContent = "Click the star on a document card and it will appear here.";
   } else if (currentView === "recent" && noFilters) {
-    noResultsTitle.textContent = "Abhi koi document open nahi hua";
-    noResultsText.textContent = "Card par eye (Preview) button dabao, wo yahan dikhega.";
+    noResultsTitle.textContent = "No documents opened yet";
+    noResultsText.textContent = "Click the eye (Preview) button on a card and it will appear here.";
   } else {
-    noResultsTitle.textContent = "Koi document match nahi hua";
-    noResultsText.textContent = "Dusra word try karo, ya search aur filter hatao.";
+    noResultsTitle.textContent = "No documents found";
+    noResultsText.textContent = "Try a different word, or clear the search and filters.";
   }
 
-  // "Filter hatao" button sirf tab jab koi search/category lagi ho
+  // Show the "Clear" button only when a search or category filter is active
   if (noFilters) {
     clearFiltersButton.classList.add("d-none");
   } else {
@@ -436,31 +460,31 @@ function showNoResultsMessage() {
 // PART 6: INDEXEDDB
 // ====================================================
 
-const DB_NAME = "DocuNestDB";     // database ka naam
+const DB_NAME = "DocuNestDB";     // database name
 const DB_VERSION = 1;             // version number
-const STORE_NAME = "documents";   // shelf (object store) ka naam
+const STORE_NAME = "documents";   // shelf (object store) name
 
-// "db" mein open database aayega. Shuru mein khali (null) hai.
+// The open database is kept in "db". It starts empty (null).
 let db = null;
 
-// Database kholta hai. Agar pehli baar hai to bana bhi deta hai.
+// Opens the database. If it is the first time, it also creates it.
 function openDatabase() {
   return new Promise(function (resolve, reject) {
 
-    // Check: kya ye browser IndexedDB support karta hai?
+    // Check: does this browser support IndexedDB?
     if (!window.indexedDB) {
-      reject(new Error("Aapka browser IndexedDB support nahi karta."));
+      reject(new Error("Your browser does not support IndexedDB."));
       return;
     }
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    // Ye sirf tab chalta hai jab database pehli baar ban raha ho
+    // This runs only when the database is being created for the first time
     request.onupgradeneeded = function (event) {
       const database = event.target.result;
 
       if (!database.objectStoreNames.contains(STORE_NAME)) {
-        // keyPath "id" = har record ka unique number, apne aap badhta hai
+        // keyPath "id" = a unique number for each record, it grows automatically
         const store = database.createObjectStore(STORE_NAME, {
           keyPath: "id",
           autoIncrement: true
@@ -482,15 +506,15 @@ function openDatabase() {
   });
 }
 
-// Transaction shuru karta hai. mode: "readonly" ya "readwrite"
+// Starts a transaction. mode: "readonly" or "readwrite"
 function startTransaction(mode) {
   if (db === null) {
-    throw new Error("Database abhi ready nahi hai.");
+    throw new Error("The database is not ready yet.");
   }
   return db.transaction(STORE_NAME, mode);
 }
 
-// Ek NAYA record save karta hai. Naya id wapas deta hai.
+// Saves a NEW record. Returns the new id.
 function addDocument(record) {
   return new Promise(function (resolve, reject) {
     const transaction = startTransaction("readwrite");
@@ -503,19 +527,19 @@ function addDocument(record) {
       newId = request.result;
     };
 
-    // oncomplete = data pakka save ho gaya (tabhi success maanenge)
+    // oncomplete = the data is really saved (only then we call it a success)
     transaction.oncomplete = function () {
       resolve(newId);
     };
 
-    // onabort = kuch gadbad hui, save NAHI hua (jaise storage full)
+    // onabort = something went wrong, nothing was saved (for example, storage is full)
     transaction.onabort = function () {
       reject(transaction.error || request.error);
     };
   });
 }
 
-// Saare records padhta hai
+// Reads all records
 function getAllDocuments() {
   return new Promise(function (resolve, reject) {
     const transaction = startTransaction("readonly");
@@ -532,7 +556,7 @@ function getAllDocuments() {
   });
 }
 
-// Ek record id se padhta hai. Na mile to undefined deta hai.
+// Reads one record by id. Returns undefined if it does not exist.
 function getDocumentById(id) {
   return new Promise(function (resolve, reject) {
     const transaction = startTransaction("readonly");
@@ -549,8 +573,8 @@ function getDocumentById(id) {
   });
 }
 
-// Purane record ko naye record se badal deta hai (same id).
-// put() = "agar id hai to update karo, nahi hai to naya banao"
+// Replaces an old record with a new one (same id).
+// put() = "update if the id exists, otherwise create"
 function updateDocument(record) {
   return new Promise(function (resolve, reject) {
     const transaction = startTransaction("readwrite");
@@ -567,7 +591,28 @@ function updateDocument(record) {
   });
 }
 
-// Ek record permanently delete karta hai
+// NEW: Updates many records in ONE transaction.
+// A transaction is all-or-nothing: either every record is saved, or none.
+function updateManyDocuments(records) {
+  return new Promise(function (resolve, reject) {
+    const transaction = startTransaction("readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+
+    records.forEach(function (record) {
+      store.put(record);
+    });
+
+    transaction.oncomplete = function () {
+      resolve();
+    };
+
+    transaction.onabort = function () {
+      reject(transaction.error);
+    };
+  });
+}
+
+// Deletes one record permanently
 function deleteDocument(id) {
   return new Promise(function (resolve, reject) {
     const transaction = startTransaction("readwrite");
@@ -584,46 +629,46 @@ function deleteDocument(id) {
   });
 }
 
-// Error ka simple message
+// A simple message for an error
 function getErrorText(error) {
   if (error && error.name === "QuotaExceededError") {
-    return "Browser ki storage full hai. Kuch purane documents delete karo.";
+    return "The browser storage is full. Delete some old documents and try again.";
   }
   if (error && error.message) {
     return error.message;
   }
-  return "Kuch galat ho gaya.";
+  return "Something went wrong.";
 }
 
 // ====================================================
-// PART 7: DOCUMENTS DIKHANA
+// PART 7: SHOWING DOCUMENTS
 // ====================================================
 
-// Card ka ek chhota icon button banata hai (eye, star, pencil, trash)
+// Creates a small icon button for a card (eye, star, pencil, trash)
 function makeIconButton(iconClass, label, extraClass, onClick) {
   const button = makeElement("button", "icon-button " + extraClass);
   button.type = "button";
-  button.title = label;                      // mouse le jane par dikhega
-  button.setAttribute("aria-label", label);  // screen reader ke liye
+  button.title = label;                      // shown when the mouse is over it
+  button.setAttribute("aria-label", label);  // for screen readers
   button.appendChild(makeElement("i", "bi " + iconClass));
   button.addEventListener("click", onClick);
   return button;
 }
 
-// Ek document ka card banata hai
+// Creates the card for one document
 function createDocumentCard(doc) {
   const column = makeElement("div", "col-12 col-md-6 col-xl-4");
   const card = makeElement("div", "doc-card");
 
-  // Left: file ka icon
+  // Left: the file icon
   const iconBox = makeElement("div", "doc-icon");
   iconBox.appendChild(makeElement("i", "bi " + getIconClass(doc.extension)));
 
-  // Right: naam, type + size, category + date, tags, notes, buttons
+  // Right: name, type + size, category + date, tags, notes, buttons
   const info = makeElement("div", "doc-info");
 
   const nameLine = makeElement("div", "doc-name", doc.name);
-  nameLine.title = doc.name;   // mouse le jane par poora naam dikhega
+  nameLine.title = doc.name;   // the full name shows when the mouse is over it
 
   const sizeLine = makeElement(
     "div",
@@ -639,7 +684,7 @@ function createDocumentCard(doc) {
   info.appendChild(sizeLine);
   info.appendChild(categoryLine);
 
-  // Tags (pehle 3 dikhao, baaki "+2" jaise)
+  // Tags (show the first 3, then "+2" and so on)
   if (doc.tags && doc.tags.length > 0) {
     const tagLine = makeElement("div", "doc-tags");
     doc.tags.slice(0, 3).forEach(function (tag) {
@@ -651,7 +696,7 @@ function createDocumentCard(doc) {
     info.appendChild(tagLine);
   }
 
-  // Notes ki ek line ka preview
+  // A one-line preview of the notes
   if (doc.notes) {
     const notesLine = makeElement("div", "doc-notes", doc.notes);
     notesLine.title = doc.notes;
@@ -666,7 +711,7 @@ function createDocumentCard(doc) {
   });
 
   const starClass = doc.favorite ? "bi-star-fill" : "bi-star";
-  const starLabel = doc.favorite ? "Favorite se hatao" : "Favorite banao";
+  const starLabel = doc.favorite ? "Remove from favorites" : "Add to favorites";
   const favoriteButton = makeIconButton(
     starClass,
     starLabel,
@@ -697,29 +742,34 @@ function createDocumentCard(doc) {
   return column;
 }
 
-// Stat cards ko REAL data se update karta hai
+// Updates the stat cards from REAL data
 function updateStats(documents) {
   const totalBytes = getTotalSize(documents);
 
   let favoriteTotal = 0;
+  // A Set keeps only unique values, so it counts each category once
+  const usedCategories = new Set();
+
   documents.forEach(function (doc) {
     if (doc.favorite) {
       favoriteTotal = favoriteTotal + 1;
     }
+    usedCategories.add(doc.category);
   });
 
   totalCount.textContent = documents.length;
   favoritesCount.textContent = favoriteTotal;
+  categoryCount.textContent = usedCategories.size;
 
-  // Storage card: "used" aur "limit ka kitna percent"
+  // Storage card: how much is used, and what percent of the limit
   const percentUsed = Math.round((totalBytes / MAX_TOTAL_STORAGE) * 100);
   storageUsed.textContent = formatSize(totalBytes);
 
-  // storageUsed ke bagal wala element = neeche ka label
+  // The element next to storageUsed is the label below the number
   storageUsed.nextElementSibling.textContent =
     "of " + STORAGE_LIMIT_TEXT + " used (" + percentUsed + "%)";
 
-  // 90% ya zyada ho gaya to number laal kar do
+  // If 90% or more is used, show the number in red
   if (percentUsed >= 90) {
     storageUsed.style.color = "#dc3545";
   } else {
@@ -727,13 +777,13 @@ function updateStats(documents) {
   }
 }
 
-// "Recently Added" mein sabse naye 3 documents
+// "Recently Added": the 3 newest documents
 function showRecentList(documents) {
   recentList.innerHTML = "";
 
   if (documents.length === 0) {
     recentList.appendChild(
-      makeElement("p", "text-muted mb-0", "Abhi koi document add nahi hua.")
+      makeElement("p", "text-muted mb-0", "No documents have been added yet.")
     );
     return;
   }
@@ -747,13 +797,13 @@ function showRecentList(documents) {
   });
 }
 
-// Document cards ka grid dikhata hai.
-// 3 haalat: (1) ek bhi document nahi, (2) documents hain par match nahi, (3) results hain
+// Shows the grid of document cards.
+// 3 situations: (1) no documents at all, (2) documents exist but none match, (3) results
 function showDocumentGrid(visibleDocuments) {
   documentGrid.innerHTML = "";
   noResults.classList.add("d-none");
 
-  // (1) Database mein ek bhi document nahi
+  // (1) There are no documents in the database
   if (allDocuments.length === 0) {
     emptyState.classList.remove("d-none");
     documentGrid.classList.add("d-none");
@@ -763,43 +813,42 @@ function showDocumentGrid(visibleDocuments) {
 
   emptyState.classList.add("d-none");
   resultInfo.textContent =
-    visibleDocuments.length + " document(s) dikh rahe hain (total " +
-    allDocuments.length + ")";
+    "Showing " + visibleDocuments.length + " of " + allDocuments.length + " document(s)";
 
-  // (2) Documents hain, par search/filter se koi match nahi hua
+  // (2) Documents exist, but the search or filter matches none
   if (visibleDocuments.length === 0) {
     documentGrid.classList.add("d-none");
     showNoResultsMessage();
     return;
   }
 
-  // (3) Results dikhao
+  // (3) Show the results
   documentGrid.classList.remove("d-none");
   visibleDocuments.forEach(function (doc) {
     documentGrid.appendChild(createDocumentCard(doc));
   });
 }
 
-// Database se documents padhke poora dashboard refresh karta hai
+// Reads documents from the database and refreshes the whole dashboard
 async function showDocuments() {
   try {
     const allRecords = await getAllDocuments();
 
-    // Sirf wahi records lo jinme asli file (fileBlob) hai
+    // Keep only records that have the real file (fileBlob)
     allDocuments = allRecords.filter(function (doc) {
       return doc.fileBlob;
     });
 
-    // Sabse naya document sabse pehle (ISO date text sort ho jata hai)
+    // Newest document first (ISO date text sorts correctly as text)
     allDocuments.sort(function (a, b) {
       return b.dateAdded.localeCompare(a.dateAdded);
     });
 
     updateStats(allDocuments);
     showRecentList(allDocuments);
-    refreshView();   // filters lagake list dikhao
+    refreshView();   // apply filters and show the list
   } catch (error) {
-    showMessage("Documents load nahi ho paye: " + getErrorText(error), "danger");
+    showMessage("Could not load documents: " + getErrorText(error), "danger");
   }
 }
 
@@ -807,47 +856,47 @@ async function showDocuments() {
 // PART 8: FILE IMPORT
 // ====================================================
 
-// File ko check karta hai.
-// Problem ho to uska message deta hai. Sab theek ho to "" (khali) deta hai.
+// Checks one file.
+// If there is a problem, it returns the message. If all is fine, it returns "" (empty).
 function checkFile(file, existingDocuments) {
   const extension = getExtension(file.name);
 
   if (file.size === 0) {
-    return "File khali hai (0 bytes).";
+    return "The file is empty (0 bytes).";
   }
 
   if (!ALLOWED_EXTENSIONS.includes(extension)) {
-    return "Ye file type supported nahi hai. Sirf PDF, PNG, JPG, JPEG aur TXT allowed hain.";
+    return "This file type is not supported. Only PDF, PNG, JPG, JPEG and TXT are allowed.";
   }
 
   if (file.size > MAX_FILE_SIZE) {
-    return "File bahut badi hai (" + formatSize(file.size) + "). Ek file ki limit 20 MB hai.";
+    return "The file is too large (" + formatSize(file.size) + "). The limit is 20 MB per file.";
   }
 
-  // Same naam + same size = shayad pehle se import ho chuki hai
+  // Same name + same size = probably already imported
   const isDuplicate = existingDocuments.some(function (doc) {
     return doc.originalName === file.name && doc.size === file.size;
   });
   if (isDuplicate) {
-    return "Ye file pehle se import ho chuki hai.";
+    return "This file has already been imported.";
   }
 
   // Total storage limit check
   const usedBytes = getTotalSize(existingDocuments);
   if (usedBytes + file.size > MAX_TOTAL_STORAGE) {
     const freeBytes = Math.max(0, MAX_TOTAL_STORAGE - usedBytes);
-    return "Storage limit (" + STORAGE_LIMIT_TEXT + ") poori ho jayegi. Sirf " +
-      formatSize(freeBytes) + " bacha hai. Kuch purane documents delete karo.";
+    return "This would go over the " + STORAGE_LIMIT_TEXT + " storage limit. Only " +
+      formatSize(freeBytes) + " is left. Delete some old documents first.";
   }
 
   return "";
 }
 
-// File se ek record banata hai (jo IndexedDB mein jayega)
+// Builds a record from a file (this goes into IndexedDB)
 function makeRecord(file) {
   return {
-    name: file.name,                       // display naam (rename se badlega)
-    originalName: file.name,               // asli naam kabhi nahi badlega
+    name: file.name,                       // display name (changes when renamed)
+    originalName: file.name,               // the original name never changes
     type: file.type || "unknown",
     extension: getExtension(file.name),
     size: file.size,
@@ -857,11 +906,11 @@ function makeRecord(file) {
     lastOpened: null,
     favorite: false,
     notes: "",
-    fileBlob: file                         // ASLI FILE (File ek Blob hi hota hai)
+    fileBlob: file                         // THE REAL FILE (a File is a kind of Blob)
   };
 }
 
-// Import chal raha hai ya nahi: loading box dikhata hai, buttons band karta hai
+// Shows or hides the loading box and disables the import buttons while importing
 function setImporting(isOn) {
   if (isOn) {
     importStatus.classList.remove("d-none");
@@ -874,12 +923,12 @@ function setImporting(isOn) {
   });
 }
 
-// Selected files ko ek-ek karke import karta hai
+// Imports the selected files one by one
 async function importFiles(files) {
 
-  // Khali selection
+  // Nothing selected
   if (files.length === 0) {
-    showMessage("Koi file select nahi hui.", "warning");
+    showMessage("No file was selected.", "warning");
     return;
   }
 
@@ -887,62 +936,62 @@ async function importFiles(files) {
   let savedCount = 0;
 
   try {
-    // Pehle se saved documents (duplicate aur storage check ke liye)
+    // Documents already saved (used for the duplicate and storage checks)
     const existingDocuments = await getAllDocuments();
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       importStatusText.textContent =
-        "Import ho raha hai: " + (i + 1) + " / " + files.length;
+        "Importing: " + (i + 1) + " / " + files.length;
 
-      // Check karo. Problem ho to bata do (chup-chap skip nahi karenge)
+      // Check the file. If there is a problem, tell the user (never skip silently)
       const problem = checkFile(file, existingDocuments);
       if (problem !== "") {
         showMessage(file.name + ": " + problem, "warning");
         continue;
       }
 
-      // Save karo
+      // Save the file
       try {
         const record = makeRecord(file);
         record.id = await addDocument(record);
-        existingDocuments.push(record);   // taaki same batch mein duplicate/storage sahi gine
+        existingDocuments.push(record);   // so duplicates and storage are counted within the same batch
         savedCount = savedCount + 1;
       } catch (error) {
-        showMessage(file.name + " save nahi hui: " + getErrorText(error), "danger");
+        showMessage(file.name + " could not be saved: " + getErrorText(error), "danger");
 
-        // Browser ki storage full hai to baaki files bhi fail hongi, isliye ruk jao
+        // If the browser storage is full, the remaining files would fail too, so stop
         if (error && error.name === "QuotaExceededError") {
-          showMessage("Storage full hai, baaki files import nahi ki gayi.", "danger");
+          showMessage("Storage is full. The remaining files were not imported.", "danger");
           break;
         }
       }
     }
   } catch (error) {
-    showMessage("Import nahi ho paya: " + getErrorText(error), "danger");
+    showMessage("Import failed: " + getErrorText(error), "danger");
   }
 
   setImporting(false);
 
-  // Success message sirf tab, jab sach mein kuch save hua ho
+  // Show the success message only if something was really saved
   if (savedCount > 0) {
-    showMessage(savedCount + " document(s) save ho gaye.", "success");
+    showMessage(savedCount + " document(s) saved.", "success");
   }
 
   await showDocuments();
 }
 
-// Import button dabane par file chooser kholo
+// Clicking an Import button opens the file chooser
 importButtons.forEach(function (button) {
   button.addEventListener("click", function () {
     fileInput.click();
   });
 });
 
-// File choose hone par import shuru karo
+// When files are chosen, start the import
 fileInput.addEventListener("change", function () {
   const selectedFiles = Array.from(fileInput.files);
-  fileInput.value = "";   // reset, taaki wahi file dobara choose ho sake
+  fileInput.value = "";   // reset, so the same file can be chosen again
   importFiles(selectedFiles);
 });
 
@@ -950,15 +999,15 @@ fileInput.addEventListener("change", function () {
 // PART 9: ORGANIZATION (favorite, delete, edit)
 // ====================================================
 
-// Jab document database mein na mile (jaise doosre tab mein delete ho gaya)
+// Used when a document is not found in the database (for example, deleted in another tab)
 async function showMissingDocument() {
-  showMessage("Ye document nahi mila. Shayad delete ho chuka hai.", "danger");
+  showMessage("This document was not found. It may have been deleted.", "danger");
   await showDocuments();
 }
 
 // ---------- Favorite ----------
 
-// Favorite ON/OFF karta hai aur database mein save karta hai
+// Turns favorite on or off and saves it in the database
 async function toggleFavorite(id) {
   try {
     const record = await getDocumentById(id);
@@ -971,16 +1020,16 @@ async function toggleFavorite(id) {
     await updateDocument(record);
     await showDocuments();
   } catch (error) {
-    showMessage("Favorite change nahi hua: " + getErrorText(error), "danger");
+    showMessage("Could not change favorite: " + getErrorText(error), "danger");
   }
 }
 
 // ---------- Delete ----------
 
-// Pehle confirmation poochta hai, phir permanently delete karta hai
+// Asks for confirmation first, then deletes permanently
 async function deleteWithConfirm(id, name) {
   const sure = confirm(
-    '"' + name + '" ko permanently delete karna hai? Ye wapas nahi aayega.'
+    'Delete "' + name + '" permanently? This cannot be undone.'
   );
   if (!sure) {
     return;
@@ -988,29 +1037,29 @@ async function deleteWithConfirm(id, name) {
 
   try {
     await deleteDocument(id);
-    showMessage("Document delete ho gaya.", "success");
+    showMessage("Document deleted.", "success");
     await showDocuments();
   } catch (error) {
-    showMessage("Delete nahi hua: " + getErrorText(error), "danger");
+    showMessage("Could not delete: " + getErrorText(error), "danger");
   }
 }
 
 // ---------- Edit popup ----------
 
-// Popup mein galti ka message dikhata hai
+// Shows an error message inside the popup
 function showEditError(text) {
   editError.textContent = text;
   editError.classList.remove("d-none");
 }
 
-// "jaise: a, b , a" -> ["a", "b"]  (spaces hatao, khali hatao, duplicate hatao)
+// "a, b , a" -> ["a", "b"]  (removes spaces, empty tags and duplicates)
 function parseTags(text) {
   const tags = [];
 
   text.split(",").forEach(function (part) {
     const tag = part.trim();
     if (tag === "") {
-      return;   // khali tag chhod do
+      return;   // skip empty tags
     }
 
     const alreadyThere = tags.some(function (oldTag) {
@@ -1024,7 +1073,7 @@ function parseTags(text) {
   return tags;
 }
 
-// Popup kholta hai aur document ki current details bharta hai
+// Opens the popup and fills in the document's current details
 async function openEditModal(id) {
   try {
     const record = await getDocumentById(id);
@@ -1035,12 +1084,13 @@ async function openEditModal(id) {
 
     editingId = id;
     editError.classList.add("d-none");
+    editSaveButton.disabled = false;
 
     editName.value = record.name;
     editTags.value = (record.tags || []).join(", ");
     editNotes.value = record.notes || "";
 
-    // Category list mein na ho (kharab record) to "Other" maano
+    // If the category is not in our list (damaged record), use "Other"
     if (categories.includes(record.category)) {
       editCategory.value = record.category;
     } else {
@@ -1049,23 +1099,29 @@ async function openEditModal(id) {
 
     editModal.show();
   } catch (error) {
-    showMessage("Edit popup nahi khul paya: " + getErrorText(error), "danger");
+    showMessage("Could not open the edit popup: " + getErrorText(error), "danger");
   }
 }
 
-// "Save changes" dabane par: check karo, phir database mein save karo
+// "Save changes": check the input, then save to the database
 async function saveEdit() {
+
+  // BUG FIX: ignore the click or Enter key while a save is already running
+  if (editSaveButton.disabled) {
+    return;
+  }
+
   const newName = editName.value.trim();
   const newTags = parseTags(editTags.value);
 
   // --- Checks ---
   if (newName === "") {
-    showEditError("Document ka naam khali nahi ho sakta.");
+    showEditError("The document name cannot be empty.");
     return;
   }
 
   if (newTags.length > MAX_TAGS) {
-    showEditError("Max " + MAX_TAGS + " tags allowed hain. Aapne " + newTags.length + " likhe hain.");
+    showEditError("You can add at most " + MAX_TAGS + " tags. You entered " + newTags.length + ".");
     return;
   }
 
@@ -1073,12 +1129,12 @@ async function saveEdit() {
     return tag.length > MAX_TAG_LENGTH;
   });
   if (tooLongTag) {
-    showEditError("Tag bahut lamba hai: \"" + tooLongTag + "\". Max " + MAX_TAG_LENGTH + " letters.");
+    showEditError("This tag is too long: \"" + tooLongTag + "\". The limit is " + MAX_TAG_LENGTH + " characters.");
     return;
   }
 
   // --- Save ---
-  editSaveButton.disabled = true;   // double-click se bachne ke liye
+  editSaveButton.disabled = true;   // prevents double saving
 
   try {
     const record = await getDocumentById(editingId);
@@ -1088,7 +1144,7 @@ async function saveEdit() {
       return;
     }
 
-    // Sirf ye 4 cheezein badalti hain. fileBlob aur originalName waise hi rehte hain.
+    // Only these 4 things change. fileBlob and originalName stay the same.
     record.name = newName;
     record.category = editCategory.value;
     record.tags = newTags;
@@ -1097,18 +1153,20 @@ async function saveEdit() {
     await updateDocument(record);
 
     editModal.hide();
-    showMessage("Changes save ho gaye.", "success");
+    showMessage("Changes saved.", "success");
     await showDocuments();
   } catch (error) {
-    showEditError("Save nahi hua: " + getErrorText(error));
+    showEditError("Could not save: " + getErrorText(error));
+  } finally {
+    // BUG FIX: "finally" always runs, even after an early return,
+    // so the Save button can never stay disabled by mistake.
+    editSaveButton.disabled = false;
   }
-
-  editSaveButton.disabled = false;
 }
 
 editSaveButton.addEventListener("click", saveEdit);
 
-// Name ya tags box mein Enter dabane par bhi save ho jaye
+// Pressing Enter in the name or tags box also saves
 [editName, editTags].forEach(function (input) {
   input.addEventListener("keydown", function (event) {
     if (event.key === "Enter") {
@@ -1117,27 +1175,27 @@ editSaveButton.addEventListener("click", saveEdit);
   });
 });
 
-// Popup khulte hi cursor naam wale box mein aa jaye (keyboard ke liye)
+// When the popup opens, put the cursor in the name box (helps keyboard users)
 editModalElement.addEventListener("shown.bs.modal", function () {
   editName.focus();
 });
 
 // ====================================================
-// PART 10: PREVIEW (NAYA - PHASE 6)
+// PART 10: PREVIEW
 // ====================================================
 
-// Preview area mein ek simple message dikhata hai
+// Shows a simple message in the preview area
 function showPreviewMessage(text) {
   previewArea.appendChild(makeElement("p", "preview-message mb-0", text));
 }
 
-// File information list mein ek row jodta hai
+// Adds one row to the file information list
 function addInfoRow(label, value) {
   previewInfo.appendChild(makeElement("dt", "info-label", label));
   previewInfo.appendChild(makeElement("dd", "info-value", value));
 }
 
-// Popup ke right side mein file ki details bharta hai
+// Fills the file information on the right side of the popup
 function fillPreviewInfo(record) {
   previewInfo.innerHTML = "";
 
@@ -1149,9 +1207,9 @@ function fillPreviewInfo(record) {
   addInfoRow("Added on", formatDateTime(record.dateAdded));
 
   if (record.lastOpened) {
-    addInfoRow("Pichli baar khola", formatDateTime(record.lastOpened));
+    addInfoRow("Last opened", formatDateTime(record.lastOpened));
   } else {
-    addInfoRow("Pichli baar khola", "Pehli baar khol rahe ho");
+    addInfoRow("Last opened", "Not opened before");
   }
 
   const tagsText = (record.tags && record.tags.length > 0) ? record.tags.join(", ") : "-";
@@ -1162,16 +1220,16 @@ function fillPreviewInfo(record) {
 // ---------- Image preview ----------
 
 function showImagePreview(record) {
-  // Blob se temporary URL banta hai. Popup band hone par revoke karenge.
+  // A Blob gets a temporary URL. We revoke it when the popup closes.
   currentObjectUrl = URL.createObjectURL(record.fileBlob);
 
   const image = makeElement("img", "preview-image");
   image.alt = record.name;
 
-  // Image kharab ho to toota hua icon nahi, saaf message dikhao
+  // If the image is damaged, show a clear message instead of a broken icon
   image.addEventListener("error", function () {
     previewArea.innerHTML = "";
-    showPreviewMessage("Ye image khul nahi paayi. File kharab ho sakti hai. Aap neeche se download kar sakte ho.");
+    showPreviewMessage("This image could not be opened. The file may be damaged. You can still download it below.");
   });
 
   image.src = currentObjectUrl;
@@ -1183,12 +1241,12 @@ function showImagePreview(record) {
 async function showTextPreview(blob, token) {
   const text = await blob.text();
 
-  // Agar tab tak popup band/badal gaya ho, to kuch mat karo
+  // If the popup was closed or changed in the meantime, do nothing
   if (token !== previewToken) {
     return;
   }
 
-  // <pre> mein textContent: text kabhi HTML ki tarah nahi chalega (safe)
+  // textContent inside <pre>: the text is never treated as HTML (safe)
   const box = makeElement("pre", "preview-text");
   box.textContent = text.length > MAX_TEXT_PREVIEW ? text.slice(0, MAX_TEXT_PREVIEW) : text;
   previewArea.appendChild(box);
@@ -1198,7 +1256,7 @@ async function showTextPreview(blob, token) {
       makeElement(
         "p",
         "small text-muted mt-2 mb-0",
-        "Sirf pehle " + MAX_TEXT_PREVIEW + " characters dikhaye gaye hain. Poori file download karke dekho."
+        "Only the first " + MAX_TEXT_PREVIEW + " characters are shown. Download the file to read all of it."
       )
     );
   }
@@ -1206,7 +1264,7 @@ async function showTextPreview(blob, token) {
 
 // ---------- PDF preview ----------
 
-// PDF toolbar (Previous / Page X of Y / Next) ko update karta hai
+// Updates the PDF toolbar (Previous / Page X of Y / Next)
 function updatePdfToolbar() {
   if (currentPdf === null) {
     return;
@@ -1217,7 +1275,7 @@ function updatePdfToolbar() {
   pdfNextButton.disabled = isRenderingPage || currentPageNumber >= currentPdf.numPages;
 }
 
-// PDF ka ek page canvas par banata hai
+// Draws one PDF page on the canvas
 async function renderPdfPage(pageNumber) {
   const pdf = currentPdf;
   const canvas = pdfCanvas;
@@ -1248,9 +1306,9 @@ async function renderPdfPage(pageNumber) {
       currentPageNumber = pageNumber;
     }
   } catch (error) {
-    // Popup band ho chuka ho to error dikhane ki zaroorat nahi
+    // If the popup is already closed, there is no need to show an error
     if (currentPdf === pdf) {
-      showMessage("PDF ka page nahi dikh paya: " + getErrorText(error), "danger");
+      showMessage("Could not show this PDF page: " + getErrorText(error), "danger");
     }
   }
 
@@ -1262,14 +1320,14 @@ async function renderPdfPage(pageNumber) {
 
 async function showPdfPreview(blob, token) {
   if (!window.pdfjsLib) {
-    throw new Error("PDF.js load nahi hua. Internet connection check karo.");
+    throw new Error("PDF.js did not load. Check your internet connection.");
   }
 
-  // File ka data padho aur PDF.js se kholo
+  // Read the file data and open it with PDF.js
   const data = await blob.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
 
-  // Agar tab tak popup band/badal gaya ho, to is PDF ko band kar do
+  // If the popup was closed or changed in the meantime, close this PDF
   if (token !== previewToken) {
     pdf.destroy();
     return;
@@ -1279,7 +1337,7 @@ async function showPdfPreview(blob, token) {
   currentPageNumber = 1;
   isRenderingPage = false;
 
-  // Toolbar: Previous, Page label, Next
+  // Toolbar: Previous, page label, Next
   const toolbar = makeElement("div", "pdf-toolbar");
 
   pdfPrevButton = makeElement("button", "btn btn-outline-secondary btn-sm", "Previous");
@@ -1308,18 +1366,18 @@ async function showPdfPreview(blob, token) {
   await renderPdfPage(1);
 }
 
-// Preview ki galti ke liye simple message
+// A simple message for preview errors
 function getPreviewErrorText(error) {
   if (error && error.name === "PasswordException") {
-    return "Ye PDF password-protected hai, isliye preview nahi ho sakta. Download karke apne PDF viewer mein kholo.";
+    return "This PDF is password-protected, so it cannot be previewed. Download it and open it in your PDF viewer.";
   }
   if (error && error.name === "InvalidPDFException") {
-    return "Ye PDF kharab ya invalid hai, isliye preview nahi ho sakta. Aap neeche se file download kar sakte ho.";
+    return "This PDF is damaged or invalid, so it cannot be previewed. You can still download the file below.";
   }
-  return "Preview nahi ban paya: " + getErrorText(error) + " Aap file download kar sakte ho.";
+  return "The preview could not be created: " + getErrorText(error) + " You can still download the file.";
 }
 
-// File type ke hisaab se sahi preview dikhata hai
+// Shows the right preview for the file type
 async function renderPreview(record, token) {
   previewArea.innerHTML = "";
   const extension = record.extension;
@@ -1332,19 +1390,19 @@ async function renderPreview(record, token) {
     } else if (extension === "txt") {
       await showTextPreview(record.fileBlob, token);
     } else {
-      // Kisi aur type ke liye: toota hua preview nahi, saaf message
-      showPreviewMessage("Is file type ka preview available nahi hai. Details dekho aur neeche se download karo.");
+      // Any other type: a clear message, never a broken preview
+      showPreviewMessage("A preview is not available for this file type. See the details and use the download button below.");
     }
   } catch (error) {
     if (token !== previewToken) {
-      return;   // popup pehle hi band ho chuka
+      return;   // the popup was already closed
     }
     previewArea.innerHTML = "";
     showPreviewMessage(getPreviewErrorText(error));
   }
 }
 
-// Preview popup kholta hai
+// Opens the preview popup
 async function openPreview(id) {
   try {
     const record = await getDocumentById(id);
@@ -1353,7 +1411,7 @@ async function openPreview(id) {
       return;
     }
     if (!record.fileBlob) {
-      showMessage("Is document ki file kharab ya missing hai, preview nahi ho sakta.", "danger");
+      showMessage("The file for this document is missing or damaged, so it cannot be previewed.", "danger");
       return;
     }
 
@@ -1367,14 +1425,14 @@ async function openPreview(id) {
 
     await renderPreview(record, myToken);
 
-    // Preview ke baad "lastOpened" save karo (Recent view isi se chalta hai)
+    // After the preview, save "lastOpened" (the Recent view uses it)
     await markAsOpened(id);
   } catch (error) {
-    showMessage("Preview nahi khul paya: " + getErrorText(error), "danger");
+    showMessage("Could not open the preview: " + getErrorText(error), "danger");
   }
 }
 
-// lastOpened ko abhi ka time karta hai. Fail ho to preview ko nahi rokta.
+// Sets lastOpened to the current time. If this fails, the preview is not affected.
 async function markAsOpened(id) {
   try {
     const freshRecord = await getDocumentById(id);
@@ -1385,13 +1443,13 @@ async function markAsOpened(id) {
     await updateDocument(freshRecord);
     await showDocuments();
   } catch (error) {
-    console.warn("lastOpened save nahi hua:", error);
+    console.warn("Could not save lastOpened:", error);
   }
 }
 
-// Popup band hone par safai: temporary URL revoke, PDF band, state reset
+// When the popup closes: revoke the temporary URL, close the PDF, reset the state
 previewModalElement.addEventListener("hidden.bs.modal", function () {
-  previewToken = previewToken + 1;   // chalte hue purane kaam ab ruk jayenge
+  previewToken = previewToken + 1;   // old running work will now stop
 
   if (currentPdf !== null) {
     currentPdf.destroy();
@@ -1415,7 +1473,7 @@ previewModalElement.addEventListener("hidden.bs.modal", function () {
 
 // ---------- Download ----------
 
-// Download ka file naam: display naam + (agar extension na ho to) extension
+// File name for the download: display name + (if missing) the extension
 function getDownloadName(record) {
   if (getExtension(record.name) === record.extension) {
     return record.name;
@@ -1423,45 +1481,295 @@ function getDownloadName(record) {
   return record.name + "." + record.extension;
 }
 
-// Asli saved file download karta hai (rename sirf naam badalta hai, content nahi)
+// Downloads the real saved file (renaming only changes the name, never the content)
 function downloadCurrentFile() {
   if (previewRecord === null) {
     return;
   }
-
-  const url = URL.createObjectURL(previewRecord.fileBlob);
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = getDownloadName(previewRecord);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-
-  // Thodi der baad temporary URL revoke kar do
-  setTimeout(function () {
-    URL.revokeObjectURL(url);
-  }, 1000);
+  downloadBlob(previewRecord.fileBlob, getDownloadName(previewRecord));
 }
 
 downloadButton.addEventListener("click", downloadCurrentFile);
 
 // ====================================================
-// PART 11: PAGE START HONE PAR
+// PART 11: BACKUP AND RESTORE (NEW - PHASE 7)
 // ====================================================
 
-// Database kholta hai, phir saved documents dikhata hai
+// Shows a result message inside the backup popup
+function showBackupResult(text, type) {
+  backupResult.innerHTML = "";
+  const box = makeElement("div", "alert alert-" + type + " mb-0", text);
+  box.setAttribute("role", "alert");
+  backupResult.appendChild(box);
+}
+
+// Opens the backup popup
+function openBackupModal() {
+  backupResult.innerHTML = "";
+  backupSummary.textContent =
+    allDocuments.length + " document(s) in DocuNest, using " +
+    formatSize(getTotalSize(allDocuments)) + " of " + STORAGE_LIMIT_TEXT + ".";
+  backupModal.show();
+}
+
+// Makes the backup entry for one document.
+// Notice: fileBlob (the real file) is NOT included.
+function makeBackupItem(doc) {
+  return {
+    id: doc.id,
+    name: doc.name,
+    originalName: doc.originalName,
+    type: doc.type,
+    extension: doc.extension,
+    size: doc.size,
+    category: doc.category,
+    tags: doc.tags || [],
+    dateAdded: doc.dateAdded,
+    lastOpened: doc.lastOpened || null,
+    favorite: doc.favorite === true,
+    notes: doc.notes || ""
+  };
+}
+
+// ---------- Export ----------
+
+function exportMetadata() {
+  if (allDocuments.length === 0) {
+    showBackupResult("There are no documents to export yet.", "warning");
+    return;
+  }
+
+  const backup = {
+    app: "DocuNest",
+    type: "metadata-backup",
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    note: "This backup contains document details only. It does NOT contain the actual files.",
+    documents: allDocuments.map(makeBackupItem)
+  };
+
+  // JSON.stringify turns the object into text. (null, 2) makes it easy to read.
+  const text = JSON.stringify(backup, null, 2);
+  const blob = new Blob([text], { type: "application/json" });
+
+  const today = new Date().toISOString().slice(0, 10);   // for example "2026-10-26"
+  downloadBlob(blob, "docunest-metadata-backup-" + today + ".json");
+
+  showBackupResult(
+    backup.documents.length + " document(s) exported. Remember: this file has the details only, not the actual files.",
+    "success"
+  );
+}
+
+exportButton.addEventListener("click", exportMetadata);
+
+// ---------- Restore ----------
+
+// A key that identifies a document: original file name + size
+function makeMatchKey(originalName, size) {
+  return originalName + "|" + size;
+}
+
+// Checks the overall format of the backup. Returns "" if fine, otherwise a message.
+function checkBackupFormat(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return "This file is not a DocuNest backup.";
+  }
+  if (data.app !== "DocuNest" || data.type !== "metadata-backup") {
+    return "This file is not a DocuNest metadata backup.";
+  }
+  if (data.version !== BACKUP_VERSION) {
+    return "Unsupported backup version (" + data.version + "). This app supports version " + BACKUP_VERSION + ".";
+  }
+  if (!Array.isArray(data.documents)) {
+    return "The backup has no documents list, so it cannot be restored.";
+  }
+  return "";
+}
+
+// Cleans a list of tags from the backup (uses the same rules as the edit popup)
+function cleanTags(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const onlyText = value.filter(function (tag) {
+    return typeof tag === "string";
+  });
+
+  return parseTags(onlyText.join(","))
+    .filter(function (tag) {
+      return tag.length <= MAX_TAG_LENGTH;
+    })
+    .slice(0, MAX_TAGS);
+}
+
+// Checks and cleans one backup entry. Returns null if the entry is not usable.
+// We never trust the file: every value is checked before it is used.
+function cleanBackupItem(item) {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  if (typeof item.originalName !== "string" || typeof item.size !== "number") {
+    return null;
+  }
+
+  const name = typeof item.name === "string" ? item.name.trim().slice(0, 100) : "";
+
+  return {
+    originalName: item.originalName,
+    size: item.size,
+    name: name !== "" ? name : item.originalName,
+    category: categories.includes(item.category) ? item.category : "Other",
+    tags: cleanTags(item.tags),
+    notes: typeof item.notes === "string" ? item.notes.trim().slice(0, 500) : "",
+    favorite: item.favorite === true
+  };
+}
+
+// Reads a backup file and restores the details after the user confirms
+async function restoreMetadata(file) {
+
+  if (file.size > MAX_BACKUP_FILE_SIZE) {
+    showBackupResult("This file is too large to be a metadata backup (maximum 5 MB).", "danger");
+    return;
+  }
+
+  // Step 1: read the file and turn the text into data
+  let data;
+  try {
+    const text = await file.text();
+    data = JSON.parse(text);
+  } catch (error) {
+    showBackupResult("This file is not valid JSON, so it cannot be restored.", "danger");
+    return;
+  }
+
+  // Step 2: check the format and version
+  const formatProblem = checkBackupFormat(data);
+  if (formatProblem !== "") {
+    showBackupResult(formatProblem, "danger");
+    return;
+  }
+
+  try {
+    // Step 3: match backup entries with the documents that exist now
+    const currentRecords = (await getAllDocuments()).filter(function (doc) {
+      return doc.fileBlob;
+    });
+
+    const lookup = new Map();   // key -> document
+    currentRecords.forEach(function (doc) {
+      lookup.set(makeMatchKey(doc.originalName, doc.size), doc);
+    });
+
+    const updates = [];                 // documents that will be changed
+    const handledKeys = new Set();      // keys already used (to find duplicates in the file)
+    let notFoundCount = 0;
+    let invalidCount = 0;
+    let duplicateCount = 0;
+
+    data.documents.forEach(function (item) {
+      const clean = cleanBackupItem(item);
+      if (clean === null) {
+        invalidCount = invalidCount + 1;
+        return;
+      }
+
+      const key = makeMatchKey(clean.originalName, clean.size);
+      if (handledKeys.has(key)) {
+        duplicateCount = duplicateCount + 1;
+        return;
+      }
+      handledKeys.add(key);
+
+      const doc = lookup.get(key);
+      if (!doc) {
+        notFoundCount = notFoundCount + 1;
+        return;
+      }
+
+      // Only these details change. fileBlob and originalName stay the same.
+      doc.name = clean.name;
+      doc.category = clean.category;
+      doc.tags = clean.tags;
+      doc.notes = clean.notes;
+      doc.favorite = clean.favorite;
+      updates.push(doc);
+    });
+
+    // Step 4: if nothing matches, stop with a helpful message
+    if (updates.length === 0) {
+      showBackupResult(
+        "Nothing to restore. None of the " + data.documents.length +
+        " backup entries match a document in DocuNest (same original file name and size). " +
+        "Import your original files first, then restore again.",
+        "warning"
+      );
+      return;
+    }
+
+    // Step 5: ask for confirmation. Nothing is changed before this.
+    const sure = confirm(
+      "Restore will replace the name, category, tags, notes and favorite status of " +
+      updates.length + " existing document(s) with the values from the backup.\n\n" +
+      notFoundCount + " backup entry(ies) have no matching document and will be skipped.\n\n" +
+      "Do you want to continue?"
+    );
+    if (!sure) {
+      showBackupResult("Restore cancelled. Nothing was changed.", "info");
+      return;
+    }
+
+    // Step 6: save all changes in ONE transaction (all or nothing)
+    await updateManyDocuments(updates);
+    await showDocuments();
+
+    showBackupResult(
+      "Restore finished. Updated: " + updates.length +
+      ". Skipped (no matching document): " + notFoundCount +
+      ". Skipped (invalid entries): " + invalidCount +
+      ". Skipped (duplicate entries): " + duplicateCount + ".",
+      "success"
+    );
+  } catch (error) {
+    showBackupResult("Restore failed. Nothing was changed. " + getErrorText(error), "danger");
+  }
+}
+
+// The Restore button opens the file chooser
+restoreButton.addEventListener("click", function () {
+  restoreInput.click();
+});
+
+// When a backup file is chosen, start the restore
+restoreInput.addEventListener("change", function () {
+  const file = restoreInput.files[0];
+  restoreInput.value = "";   // reset, so the same file can be chosen again
+
+  if (!file) {
+    showBackupResult("No file was selected.", "warning");
+    return;
+  }
+  restoreMetadata(file);
+});
+
+// ====================================================
+// PART 12: WHEN THE PAGE STARTS
+// ====================================================
+
+// Opens the database, then shows the saved documents
 async function startDatabase() {
   try {
     await openDatabase();
     await showDocuments();
   } catch (error) {
     dbError.textContent =
-      "Database nahi khul paya: " + getErrorText(error) +
-      " Documents save ya dikhaye nahi ja sakte.";
+      "The database could not be opened: " + getErrorText(error) +
+      " Documents cannot be saved or shown.";
     dbError.classList.remove("d-none");
 
-    // Database nahi hai to import band
+    // If there is no database, turn off the import buttons
     importButtons.forEach(function (button) {
       button.disabled = true;
     });
@@ -1470,7 +1778,6 @@ async function startDatabase() {
 
 showCategoryButtons();
 fillCategoryDropdown();
-categoryCount.textContent = categories.length;   // 6 categories (list se count)
 startDatabase();
 
-console.log("DocuNest: Phase 6 script loaded.");
+console.log("DocuNest: Phase 7 script loaded.");
