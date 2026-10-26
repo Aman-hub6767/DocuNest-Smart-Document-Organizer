@@ -1,4 +1,4 @@
-/* DocuNest - Phase 4 styles */
+/* DocuNest - Phase 5 styles */
 
 /* ---------- Colors (ek jagah, baad mein easily change) ---------- */
 :root {
@@ -251,10 +251,10 @@ body {
   margin-bottom: 1rem;
 }
 
-/* ---------- Document card (NAYA - Phase 4) ---------- */
+/* ---------- Document card ---------- */
 .doc-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.9rem;
   background-color: #ffffff;
   border: 1px solid var(--border-color);
@@ -303,7 +303,64 @@ body {
   font-weight: 500;
 }
 
-/* ---------- Recently Added list (NAYA - Phase 4) ---------- */
+/* ---------- Tags aur notes (NAYA - Phase 5) ---------- */
+.doc-tags {
+  margin-top: 0.35rem;
+}
+
+.tag-badge {
+  display: inline-block;
+  background-color: #f3f4f6;
+  color: var(--muted-color);
+  border-radius: 6px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.75rem;
+  margin-right: 0.25rem;
+  margin-bottom: 0.15rem;
+}
+
+.doc-notes {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--muted-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Card ke action buttons (NAYA - Phase 5) ---------- */
+.doc-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.icon-button {
+  border: none;
+  background: none;
+  color: var(--muted-color);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+}
+
+.icon-button:hover {
+  background-color: var(--primary-light);
+  color: var(--primary-color);
+}
+
+.icon-button.favorite-on {
+  color: #f59e0b;      /* star ka peela rang */
+}
+
+.icon-button.danger:hover {
+  background-color: #fee2e2;
+  color: #dc3545;
+}
+
+/* ---------- Recently Added list ---------- */
 .recent-item {
   display: flex;
   align-items: center;

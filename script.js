@@ -1,5 +1,6 @@
-// DocuNest - Phase 4 script (100 MB storage limit ke saath)
-// Phase 2 ka UI + Phase 3 ka IndexedDB + Phase 4 ka file import.
+// DocuNest - Phase 5 script
+// UI + IndexedDB + File import + Organization
+// (favorite, rename, category, tags, notes, delete)
 
 // ====================================================
 // PART 1: DATA AUR SETTINGS
@@ -30,14 +31,19 @@ const pageInfo = {
 
 // Import ke rules
 const ALLOWED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "txt"];
-const MAX_FILE_SIZE = 100 * 1024 * 1024;       // ek file ki limit: 100 MB (bytes mein)
+const MAX_FILE_SIZE = 20 * 1024 * 1024;         // ek file ki limit: 20 MB (bytes mein)
+const MAX_TOTAL_STORAGE = 100 * 1024 * 1024;    // DocuNest ki total limit: 100 MB
+const STORAGE_LIMIT_TEXT = Math.round(MAX_TOTAL_STORAGE / (1024 * 1024)) + " MB";
 
-// NAYA: DocuNest ki total storage limit
-const MAX_TOTAL_STORAGE = 100 * 1024 * 1024;    // 100 MB (bytes mein)
-const STORAGE_LIMIT_TEXT = Math.round(MAX_TOTAL_STORAGE / (1024 * 1024)) + " MB";   // "100 MB"
+// Tags ke rules (NAYA)
+const MAX_TAGS = 10;          // ek document par max 10 tags
+const MAX_TAG_LENGTH = 20;    // ek tag max 20 letters
 
-// Abhi kaunsi category selected hai
+// Abhi kaunsi category selected hai (filter)
 let selectedCategory = "All";
+
+// Edit popup mein abhi kaunse document ko edit kar rahe hain (NAYA)
+let editingId = null;
 
 // ====================================================
 // PART 2: HTML ELEMENTS PAKADNA
@@ -64,6 +70,16 @@ const storageUsed = document.getElementById("storage-used");
 const recentList = document.getElementById("recent-list");
 const emptyState = document.getElementById("empty-state");
 const documentGrid = document.getElementById("document-grid");
+
+// Edit popup ke elements (NAYA)
+const editModalElement = document.getElementById("edit-modal");
+const editModal = new bootstrap.Modal(editModalElement);
+const editError = document.getElementById("edit-error");
+const editName = document.getElementById("edit-name");
+const editCategory = document.getElementById("edit-category");
+const editTags = document.getElementById("edit-tags");
+const editNotes = document.getElementById("edit-notes");
+const editSaveButton = document.getElementById("edit-save-button");
 
 // ====================================================
 // PART 3: CHHOTE HELPER FUNCTIONS
@@ -148,7 +164,7 @@ function getIconClass(extension) {
   return "bi-file-earmark";
 }
 
-// NAYA: Saare documents ka total size (bytes mein) jodta hai
+// Saare documents ka total size (bytes mein) jodta hai
 // (doc.size || 0 = agar size na ho to 0 maano, taaki galti na aaye)
 function getTotalSize(documents) {
   let totalBytes = 0;
@@ -231,6 +247,16 @@ function selectCategory(name) {
   showCategoryButtons();
 }
 
+// Edit popup ke dropdown mein categories bharta hai (NAYA)
+function fillCategoryDropdown() {
+  categories.forEach(function (name) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    editCategory.appendChild(option);
+  });
+}
+
 // ====================================================
 // PART 6: INDEXEDDB
 // ====================================================
@@ -289,7 +315,7 @@ function startTransaction(mode) {
   return db.transaction(STORE_NAME, mode);
 }
 
-// Ek record save karta hai. Naya id wapas deta hai.
+// Ek NAYA record save karta hai. Naya id wapas deta hai.
 function addDocument(record) {
   return new Promise(function (resolve, reject) {
     const transaction = startTransaction("readwrite");
@@ -331,6 +357,58 @@ function getAllDocuments() {
   });
 }
 
+// NAYA: Ek record id se padhta hai. Na mile to undefined deta hai.
+function getDocumentById(id) {
+  return new Promise(function (resolve, reject) {
+    const transaction = startTransaction("readonly");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(id);
+
+    request.onsuccess = function () {
+      resolve(request.result);
+    };
+
+    request.onerror = function () {
+      reject(request.error);
+    };
+  });
+}
+
+// NAYA: Purane record ko naye record se badal deta hai (same id).
+// put() = "agar id hai to update karo, nahi hai to naya banao"
+function updateDocument(record) {
+  return new Promise(function (resolve, reject) {
+    const transaction = startTransaction("readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put(record);
+
+    transaction.oncomplete = function () {
+      resolve();
+    };
+
+    transaction.onabort = function () {
+      reject(transaction.error || request.error);
+    };
+  });
+}
+
+// NAYA: Ek record permanently delete karta hai
+function deleteDocument(id) {
+  return new Promise(function (resolve, reject) {
+    const transaction = startTransaction("readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.delete(id);
+
+    transaction.oncomplete = function () {
+      resolve();
+    };
+
+    transaction.onabort = function () {
+      reject(transaction.error || request.error);
+    };
+  });
+}
+
 // Error ka simple message
 function getErrorText(error) {
   if (error && error.name === "QuotaExceededError") {
@@ -346,6 +424,17 @@ function getErrorText(error) {
 // PART 7: DOCUMENTS DIKHANA
 // ====================================================
 
+// Card ka ek chhota icon button banata hai (star, pencil, trash)
+function makeIconButton(iconClass, label, extraClass, onClick) {
+  const button = makeElement("button", "icon-button " + extraClass);
+  button.type = "button";
+  button.title = label;                      // mouse le jane par dikhega
+  button.setAttribute("aria-label", label);  // screen reader ke liye
+  button.appendChild(makeElement("i", "bi " + iconClass));
+  button.addEventListener("click", onClick);
+  return button;
+}
+
 // Ek document ka card banata hai
 function createDocumentCard(doc) {
   const column = makeElement("div", "col-12 col-md-6 col-xl-4");
@@ -355,7 +444,7 @@ function createDocumentCard(doc) {
   const iconBox = makeElement("div", "doc-icon");
   iconBox.appendChild(makeElement("i", "bi " + getIconClass(doc.extension)));
 
-  // Right: naam, type + size, category + date
+  // Right: naam, type + size, category + date, tags, notes, buttons
   const info = makeElement("div", "doc-info");
 
   const nameLine = makeElement("div", "doc-name", doc.name);
@@ -374,6 +463,53 @@ function createDocumentCard(doc) {
   info.appendChild(nameLine);
   info.appendChild(sizeLine);
   info.appendChild(categoryLine);
+
+  // Tags (pehle 3 dikhao, baaki "+2" jaise)
+  if (doc.tags && doc.tags.length > 0) {
+    const tagLine = makeElement("div", "doc-tags");
+    doc.tags.slice(0, 3).forEach(function (tag) {
+      tagLine.appendChild(makeElement("span", "tag-badge", tag));
+    });
+    if (doc.tags.length > 3) {
+      tagLine.appendChild(makeElement("span", "tag-badge", "+" + (doc.tags.length - 3)));
+    }
+    info.appendChild(tagLine);
+  }
+
+  // Notes ki ek line ka preview
+  if (doc.notes) {
+    const notesLine = makeElement("div", "doc-notes", doc.notes);
+    notesLine.title = doc.notes;
+    info.appendChild(notesLine);
+  }
+
+  // Action buttons: favorite, edit, delete
+  const actions = makeElement("div", "doc-actions");
+
+  const starClass = doc.favorite ? "bi-star-fill" : "bi-star";
+  const starLabel = doc.favorite ? "Favorite se hatao" : "Favorite banao";
+  const favoriteButton = makeIconButton(
+    starClass,
+    starLabel,
+    doc.favorite ? "favorite-on" : "",
+    function () {
+      toggleFavorite(doc.id);
+    }
+  );
+  favoriteButton.setAttribute("aria-pressed", doc.favorite ? "true" : "false");
+
+  const editButton = makeIconButton("bi-pencil", "Edit details", "", function () {
+    openEditModal(doc.id);
+  });
+
+  const deleteButton = makeIconButton("bi-trash", "Delete", "danger", function () {
+    deleteWithConfirm(doc.id, doc.name);
+  });
+
+  actions.appendChild(favoriteButton);
+  actions.appendChild(editButton);
+  actions.appendChild(deleteButton);
+  info.appendChild(actions);
 
   card.appendChild(iconBox);
   card.appendChild(info);
@@ -395,7 +531,7 @@ function updateStats(documents) {
   totalCount.textContent = documents.length;
   favoritesCount.textContent = favoriteTotal;
 
-  // NAYA: storage card mein "used" aur "limit ka kitna percent" dikhao
+  // Storage card: "used" aur "limit ka kitna percent"
   const percentUsed = Math.round((totalBytes / MAX_TOTAL_STORAGE) * 100);
   storageUsed.textContent = formatSize(totalBytes);
 
@@ -501,8 +637,7 @@ function checkFile(file, existingDocuments) {
     return "Ye file pehle se import ho chuki hai.";
   }
 
-  // NAYA: total storage limit check
-  // Ab tak jitna use hua + ye nayi file > 100 MB ho jayega?
+  // Total storage limit check
   const usedBytes = getTotalSize(existingDocuments);
   if (usedBytes + file.size > MAX_TOTAL_STORAGE) {
     const freeBytes = Math.max(0, MAX_TOTAL_STORAGE - usedBytes);
@@ -516,7 +651,7 @@ function checkFile(file, existingDocuments) {
 // File se ek record banata hai (jo IndexedDB mein jayega)
 function makeRecord(file) {
   return {
-    name: file.name,                       // display naam (Phase 5 mein rename hoga)
+    name: file.name,                       // display naam (rename se badlega)
     originalName: file.name,               // asli naam kabhi nahi badlega
     type: file.type || "unknown",
     extension: getExtension(file.name),
@@ -617,7 +752,183 @@ fileInput.addEventListener("change", function () {
 });
 
 // ====================================================
-// PART 9: PAGE START HONE PAR
+// PART 9: ORGANIZATION (NAYA - PHASE 5)
+// ====================================================
+
+// Jab document database mein na mile (jaise doosre tab mein delete ho gaya)
+async function showMissingDocument() {
+  showMessage("Ye document nahi mila. Shayad delete ho chuka hai.", "danger");
+  await showDocuments();
+}
+
+// ---------- Favorite ----------
+
+// Favorite ON/OFF karta hai aur database mein save karta hai
+async function toggleFavorite(id) {
+  try {
+    const record = await getDocumentById(id);
+    if (!record) {
+      await showMissingDocument();
+      return;
+    }
+
+    record.favorite = !record.favorite;   // true <-> false
+    await updateDocument(record);
+    await showDocuments();
+  } catch (error) {
+    showMessage("Favorite change nahi hua: " + getErrorText(error), "danger");
+  }
+}
+
+// ---------- Delete ----------
+
+// Pehle confirmation poochta hai, phir permanently delete karta hai
+async function deleteWithConfirm(id, name) {
+  const sure = confirm(
+    '"' + name + '" ko permanently delete karna hai? Ye wapas nahi aayega.'
+  );
+  if (!sure) {
+    return;
+  }
+
+  try {
+    await deleteDocument(id);
+    showMessage("Document delete ho gaya.", "success");
+    await showDocuments();
+  } catch (error) {
+    showMessage("Delete nahi hua: " + getErrorText(error), "danger");
+  }
+}
+
+// ---------- Edit popup ----------
+
+// Popup mein galti ka message dikhata hai
+function showEditError(text) {
+  editError.textContent = text;
+  editError.classList.remove("d-none");
+}
+
+// "jaise: a, b , a" -> ["a", "b"]  (spaces hatao, khali hatao, duplicate hatao)
+function parseTags(text) {
+  const tags = [];
+
+  text.split(",").forEach(function (part) {
+    const tag = part.trim();
+    if (tag === "") {
+      return;   // khali tag chhod do
+    }
+
+    const alreadyThere = tags.some(function (oldTag) {
+      return oldTag.toLowerCase() === tag.toLowerCase();
+    });
+    if (!alreadyThere) {
+      tags.push(tag);
+    }
+  });
+
+  return tags;
+}
+
+// Popup kholta hai aur document ki current details bharta hai
+async function openEditModal(id) {
+  try {
+    const record = await getDocumentById(id);
+    if (!record) {
+      await showMissingDocument();
+      return;
+    }
+
+    editingId = id;
+    editError.classList.add("d-none");
+
+    editName.value = record.name;
+    editTags.value = (record.tags || []).join(", ");
+    editNotes.value = record.notes || "";
+
+    // Category list mein na ho (kharab record) to "Other" maano
+    if (categories.includes(record.category)) {
+      editCategory.value = record.category;
+    } else {
+      editCategory.value = "Other";
+    }
+
+    editModal.show();
+  } catch (error) {
+    showMessage("Edit popup nahi khul paya: " + getErrorText(error), "danger");
+  }
+}
+
+// "Save changes" dabane par: check karo, phir database mein save karo
+async function saveEdit() {
+  const newName = editName.value.trim();
+  const newTags = parseTags(editTags.value);
+
+  // --- Checks ---
+  if (newName === "") {
+    showEditError("Document ka naam khali nahi ho sakta.");
+    return;
+  }
+
+  if (newTags.length > MAX_TAGS) {
+    showEditError("Max " + MAX_TAGS + " tags allowed hain. Aapne " + newTags.length + " likhe hain.");
+    return;
+  }
+
+  const tooLongTag = newTags.find(function (tag) {
+    return tag.length > MAX_TAG_LENGTH;
+  });
+  if (tooLongTag) {
+    showEditError("Tag bahut lamba hai: \"" + tooLongTag + "\". Max " + MAX_TAG_LENGTH + " letters.");
+    return;
+  }
+
+  // --- Save ---
+  editSaveButton.disabled = true;   // double-click se bachne ke liye
+
+  try {
+    const record = await getDocumentById(editingId);
+    if (!record) {
+      editModal.hide();
+      await showMissingDocument();
+      return;
+    }
+
+    // Sirf ye 4 cheezein badalti hain. fileBlob aur originalName waise hi rehte hain.
+    record.name = newName;
+    record.category = editCategory.value;
+    record.tags = newTags;
+    record.notes = editNotes.value.trim();
+
+    await updateDocument(record);
+
+    editModal.hide();
+    showMessage("Changes save ho gaye.", "success");
+    await showDocuments();
+  } catch (error) {
+    showEditError("Save nahi hua: " + getErrorText(error));
+  }
+
+  editSaveButton.disabled = false;
+}
+
+editSaveButton.addEventListener("click", saveEdit);
+
+// Name ya tags box mein Enter dabane par bhi save ho jaye
+[editName, editTags].forEach(function (input) {
+  input.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      saveEdit();
+    }
+  });
+});
+
+// Popup khulte hi cursor naam wale box mein aa jaye (keyboard ke liye)
+editModalElement.addEventListener("shown.bs.modal", function () {
+  editName.focus();
+});
+
+// ====================================================
+// PART 10: PAGE START HONE PAR
 // ====================================================
 
 // Database kholta hai, phir saved documents dikhata hai
@@ -639,7 +950,8 @@ async function startDatabase() {
 }
 
 showCategoryButtons();
+fillCategoryDropdown();
 categoryCount.textContent = categories.length;   // 6 categories (list se count)
 startDatabase();
 
-console.log("DocuNest: Phase 4 script loaded.");
+console.log("DocuNest: Phase 5 script loaded.");
