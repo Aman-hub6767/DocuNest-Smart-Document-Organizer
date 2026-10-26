@@ -1,4 +1,4 @@
-/* DocuNest - Phase 2 styles */
+/* DocuNest - Phase 4 styles */
 
 /* ---------- Colors (ek jagah, baad mein easily change) ---------- */
 :root {
@@ -122,7 +122,7 @@ body {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
   flex-wrap: wrap;
 }
 
@@ -249,6 +249,85 @@ body {
 .empty-text {
   color: var(--muted-color);
   margin-bottom: 1rem;
+}
+
+/* ---------- Document card (NAYA - Phase 4) ---------- */
+.doc-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  background-color: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0.9rem;
+  height: 100%;
+}
+
+.doc-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background-color: var(--primary-light);
+  color: var(--primary-color);
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* min-width: 0 se lamba naam "..." mein kat jata hai, card ke bahar nahi nikalta */
+.doc-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-meta {
+  font-size: 0.85rem;
+  color: var(--muted-color);
+}
+
+.category-badge {
+  background-color: var(--primary-light);
+  color: var(--primary-color);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* ---------- Recently Added list (NAYA - Phase 4) ---------- */
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.recent-item:last-child {
+  border-bottom: none;
+}
+
+.recent-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-date {
+  font-size: 0.85rem;
+  color: var(--muted-color);
+  white-space: nowrap;
 }
 
 /* ---------- Tablet / Mobile (992px se chhoti screen) ---------- */

@@ -1,8 +1,8 @@
-// DocuNest - Phase 3 script
-// Phase 2 ka UI code + IndexedDB ka naya code.
+// DocuNest - Phase 4 script
+// Phase 2 ka UI + Phase 3 ka IndexedDB + naya: real file import.
 
 // ====================================================
-// PART 1: DATA
+// PART 1: DATA AUR SETTINGS
 // ====================================================
 
 // Hamari categories ki list
@@ -28,6 +28,10 @@ const pageInfo = {
   }
 };
 
+// Import ke rules
+const ALLOWED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "txt"];
+const MAX_FILE_SIZE = 20 * 1024 * 1024;   // 20 MB (bytes mein)
+
 // Abhi kaunsi category selected hai
 let selectedCategory = "All";
 
@@ -46,16 +50,32 @@ const categoryCount = document.getElementById("category-count");
 const navItems = document.querySelectorAll(".nav-item");
 const importButtons = document.querySelectorAll(".import-button");
 
-// Phase 3 test box ke elements
-const dbStatus = document.getElementById("db-status");
-const saveTestButton = document.getElementById("save-test-button");
-const showTestButton = document.getElementById("show-test-button");
-const clearTestButton = document.getElementById("clear-test-button");
-const testOutput = document.getElementById("test-output");
+// Phase 4 ke naye elements
+const fileInput = document.getElementById("file-input");
+const importStatus = document.getElementById("import-status");
+const importStatusText = document.getElementById("import-status-text");
+const dbError = document.getElementById("db-error");
+const totalCount = document.getElementById("total-count");
+const favoritesCount = document.getElementById("favorites-count");
+const storageUsed = document.getElementById("storage-used");
+const recentList = document.getElementById("recent-list");
+const emptyState = document.getElementById("empty-state");
+const documentGrid = document.getElementById("document-grid");
 
 // ====================================================
-// PART 3: MESSAGES
+// PART 3: CHHOTE HELPER FUNCTIONS
 // ====================================================
+
+// Ek HTML element banata hai. text diya ho to textContent se lagata hai.
+// textContent safe hai: file ka naam kabhi HTML ki tarah nahi chalega.
+function makeElement(tagName, className, text) {
+  const element = document.createElement(tagName);
+  element.className = className;
+  if (text !== undefined) {
+    element.textContent = text;
+  }
+  return element;
+}
 
 // Success / error / info message dikhata hai (5 second baad hat jata hai)
 // type: "success", "danger", "warning" ya "info"
@@ -64,7 +84,6 @@ function showMessage(text, type) {
   box.className = "alert alert-" + type + " alert-dismissible fade show";
   box.setAttribute("role", "alert");
 
-  // textContent use kiya hai taaki text kabhi HTML ki tarah na chale (safe)
   const messageText = document.createElement("span");
   messageText.textContent = text;
 
@@ -81,6 +100,49 @@ function showMessage(text, type) {
   setTimeout(function () {
     box.remove();
   }, 5000);
+}
+
+// File ka size padhne layak banata hai: 1536 -> "1.5 KB"
+function formatSize(bytes) {
+  if (bytes < 1024) {
+    return bytes + " B";
+  }
+  if (bytes < 1024 * 1024) {
+    return (bytes / 1024).toFixed(1) + " KB";
+  }
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+// Date ko padhne layak banata hai: "26 Oct 2026"
+function formatDate(isoText) {
+  return new Date(isoText).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+// File ke naam se extension nikalta hai: "Resume.PDF" -> "pdf"
+function getExtension(fileName) {
+  const dotIndex = fileName.lastIndexOf(".");
+  if (dotIndex === -1) {
+    return "";
+  }
+  return fileName.slice(dotIndex + 1).toLowerCase();
+}
+
+// Extension ke hisaab se icon ki class
+function getIconClass(extension) {
+  if (extension === "pdf") {
+    return "bi-file-earmark-pdf";
+  }
+  if (extension === "png" || extension === "jpg" || extension === "jpeg") {
+    return "bi-file-earmark-image";
+  }
+  if (extension === "txt") {
+    return "bi-file-earmark-text";
+  }
+  return "bi-file-earmark";
 }
 
 // ====================================================
@@ -157,20 +219,7 @@ function selectCategory(name) {
 }
 
 // ====================================================
-// PART 6: IMPORT BUTTON
-// ====================================================
-
-// Abhi upload nahi bana, isliye sach batate hain
-function handleImportClick() {
-  showMessage("Import feature Phase 4 mein banayenge. Abhi ye sirf design hai.", "info");
-}
-
-importButtons.forEach(function (button) {
-  button.addEventListener("click", handleImportClick);
-});
-
-// ====================================================
-// PART 7: INDEXEDDB (NAYA - PHASE 3)
+// PART 6: INDEXEDDB
 // ====================================================
 
 const DB_NAME = "DocuNestDB";     // database ka naam
@@ -180,10 +229,7 @@ const STORE_NAME = "documents";   // shelf (object store) ka naam
 // "db" mein open database aayega. Shuru mein khali (null) hai.
 let db = null;
 
-// ---------- Database kholna ----------
-
 // Database kholta hai. Agar pehli baar hai to bana bhi deta hai.
-// Promise = "abhi result nahi hai, thodi der mein milega"
 function openDatabase() {
   return new Promise(function (resolve, reject) {
 
@@ -206,7 +252,6 @@ function openDatabase() {
           autoIncrement: true
         });
 
-        // Index = search/filter ko tez karne ke liye
         store.createIndex("category", "category", { unique: false });
         store.createIndex("dateAdded", "dateAdded", { unique: false });
       }
@@ -223,18 +268,13 @@ function openDatabase() {
   });
 }
 
-// ---------- Transaction shuru karna ----------
-
-// IndexedDB mein har kaam "transaction" ke andar hota hai.
-// mode: "readonly" (sirf padhna) ya "readwrite" (likhna / delete)
+// Transaction shuru karta hai. mode: "readonly" ya "readwrite"
 function startTransaction(mode) {
   if (db === null) {
     throw new Error("Database abhi ready nahi hai.");
   }
   return db.transaction(STORE_NAME, mode);
 }
-
-// ---------- Record save karna ----------
 
 // Ek record save karta hai. Naya id wapas deta hai.
 function addDocument(record) {
@@ -261,8 +301,7 @@ function addDocument(record) {
   });
 }
 
-// ---------- Saare records padhna ----------
-
+// Saare records padhta hai
 function getAllDocuments() {
   return new Promise(function (resolve, reject) {
     const transaction = startTransaction("readonly");
@@ -279,26 +318,7 @@ function getAllDocuments() {
   });
 }
 
-// ---------- Saare records delete karna (sirf test ke liye) ----------
-
-function deleteAllDocuments() {
-  return new Promise(function (resolve, reject) {
-    const transaction = startTransaction("readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-    store.clear();
-
-    transaction.oncomplete = function () {
-      resolve();
-    };
-
-    transaction.onabort = function () {
-      reject(transaction.error);
-    };
-  });
-}
-
-// ---------- Error ka simple message ----------
-
+// Error ka simple message
 function getErrorText(error) {
   if (error && error.name === "QuotaExceededError") {
     return "Browser ki storage full hai. Kuch purane documents delete karo.";
@@ -310,93 +330,276 @@ function getErrorText(error) {
 }
 
 // ====================================================
-// PART 8: PHASE 3 TEST BOX KE BUTTONS
+// PART 7: DOCUMENTS DIKHANA (NAYA - PHASE 4)
 // ====================================================
 
-// Test record save karta hai
-// async/await = "ruko, jab tak result na aaye, phir aage badho"
-async function handleSaveTest() {
-  try {
-    const testRecord = {
-      name: "Test Record",
-      category: "Other",
-      dateAdded: new Date().toISOString()
-    };
+// Ek document ka card banata hai
+function createDocumentCard(doc) {
+  const column = makeElement("div", "col-12 col-md-6 col-xl-4");
+  const card = makeElement("div", "doc-card");
 
-    const newId = await addDocument(testRecord);
-    showMessage("Test record save ho gaya. ID: " + newId, "success");
-    await handleShowTest();   // list refresh karo
-  } catch (error) {
-    showMessage("Save nahi hua: " + getErrorText(error), "danger");
-  }
+  // Left: file ka icon
+  const iconBox = makeElement("div", "doc-icon");
+  iconBox.appendChild(makeElement("i", "bi " + getIconClass(doc.extension)));
+
+  // Right: naam, type + size, category + date
+  const info = makeElement("div", "doc-info");
+
+  const nameLine = makeElement("div", "doc-name", doc.name);
+  nameLine.title = doc.name;   // mouse le jane par poora naam dikhega
+
+  const sizeLine = makeElement(
+    "div",
+    "doc-meta",
+    doc.extension.toUpperCase() + " | " + formatSize(doc.size)
+  );
+
+  const categoryLine = makeElement("div", "doc-meta");
+  categoryLine.appendChild(makeElement("span", "category-badge", doc.category));
+  categoryLine.append(" " + formatDate(doc.dateAdded));
+
+  info.appendChild(nameLine);
+  info.appendChild(sizeLine);
+  info.appendChild(categoryLine);
+
+  card.appendChild(iconBox);
+  card.appendChild(info);
+  column.appendChild(card);
+  return column;
 }
 
-// Saved records ko list mein dikhata hai
-async function handleShowTest() {
-  try {
-    const records = await getAllDocuments();
+// Stat cards ko REAL data se update karta hai
+function updateStats(documents) {
+  let totalBytes = 0;
+  let favoriteTotal = 0;
 
-    testOutput.innerHTML = "";
-
-    if (records.length === 0) {
-      const emptyItem = document.createElement("li");
-      emptyItem.className = "text-muted";
-      emptyItem.textContent = "Database mein koi record nahi hai.";
-      testOutput.appendChild(emptyItem);
-      return;
+  documents.forEach(function (doc) {
+    totalBytes = totalBytes + doc.size;
+    if (doc.favorite) {
+      favoriteTotal = favoriteTotal + 1;
     }
+  });
 
-    records.forEach(function (record) {
-      const item = document.createElement("li");
-      // textContent: safe tareeka text dikhane ka
-      item.textContent =
-        "ID " + record.id + " | " + record.name +
-        " | " + record.category + " | " + record.dateAdded;
-      testOutput.appendChild(item);
-    });
-  } catch (error) {
-    showMessage("Records nahi padhe ja sake: " + getErrorText(error), "danger");
-  }
+  totalCount.textContent = documents.length;
+  favoritesCount.textContent = favoriteTotal;
+  storageUsed.textContent = formatSize(totalBytes);
 }
 
-// Saare test records delete karta hai
-async function handleClearTest() {
-  const sure = confirm("Saare test records delete karne hain?");
-  if (!sure) {
+// "Recently Added" mein sabse naye 3 documents
+function showRecentList(documents) {
+  recentList.innerHTML = "";
+
+  if (documents.length === 0) {
+    recentList.appendChild(
+      makeElement("p", "text-muted mb-0", "Abhi koi document add nahi hua.")
+    );
     return;
   }
 
+  documents.slice(0, 3).forEach(function (doc) {
+    const row = makeElement("div", "recent-item");
+    row.appendChild(makeElement("i", "bi " + getIconClass(doc.extension)));
+    row.appendChild(makeElement("span", "recent-name", doc.name));
+    row.appendChild(makeElement("span", "recent-date", formatDate(doc.dateAdded)));
+    recentList.appendChild(row);
+  });
+}
+
+// Document cards ka grid dikhata hai (ya empty state)
+function showDocumentGrid(documents) {
+  documentGrid.innerHTML = "";
+
+  if (documents.length === 0) {
+    emptyState.classList.remove("d-none");
+    documentGrid.classList.add("d-none");
+    return;
+  }
+
+  emptyState.classList.add("d-none");
+  documentGrid.classList.remove("d-none");
+
+  documents.forEach(function (doc) {
+    documentGrid.appendChild(createDocumentCard(doc));
+  });
+}
+
+// Database se documents padhke poora dashboard refresh karta hai
+async function showDocuments() {
   try {
-    await deleteAllDocuments();
-    showMessage("Saare test records delete ho gaye.", "success");
-    await handleShowTest();
+    const allRecords = await getAllDocuments();
+
+    // Sirf wahi records lo jinme asli file (fileBlob) hai
+    const documents = allRecords.filter(function (doc) {
+      return doc.fileBlob;
+    });
+
+    // Sabse naya document sabse pehle (ISO date text sort ho jata hai)
+    documents.sort(function (a, b) {
+      return b.dateAdded.localeCompare(a.dateAdded);
+    });
+
+    updateStats(documents);
+    showRecentList(documents);
+    showDocumentGrid(documents);
   } catch (error) {
-    showMessage("Delete nahi hua: " + getErrorText(error), "danger");
+    showMessage("Documents load nahi ho paye: " + getErrorText(error), "danger");
   }
 }
 
-saveTestButton.addEventListener("click", handleSaveTest);
-showTestButton.addEventListener("click", handleShowTest);
-clearTestButton.addEventListener("click", handleClearTest);
+// ====================================================
+// PART 8: FILE IMPORT (NAYA - PHASE 4)
+// ====================================================
+
+// File ko check karta hai.
+// Problem ho to uska message deta hai. Sab theek ho to "" (khali) deta hai.
+function checkFile(file, existingDocuments) {
+  const extension = getExtension(file.name);
+
+  if (file.size === 0) {
+    return "File khali hai (0 bytes).";
+  }
+
+  if (!ALLOWED_EXTENSIONS.includes(extension)) {
+    return "Ye file type supported nahi hai. Sirf PDF, PNG, JPG, JPEG aur TXT allowed hain.";
+  }
+
+  if (file.size > MAX_FILE_SIZE) {
+    return "File bahut badi hai (" + formatSize(file.size) + "). Limit 20 MB hai.";
+  }
+
+  // Same naam + same size = shayad pehle se import ho chuki hai
+  const isDuplicate = existingDocuments.some(function (doc) {
+    return doc.originalName === file.name && doc.size === file.size;
+  });
+  if (isDuplicate) {
+    return "Ye file pehle se import ho chuki hai.";
+  }
+
+  return "";
+}
+
+// File se ek record banata hai (jo IndexedDB mein jayega)
+function makeRecord(file) {
+  return {
+    name: file.name,                       // display naam (Phase 5 mein rename hoga)
+    originalName: file.name,               // asli naam kabhi nahi badlega
+    type: file.type || "unknown",
+    extension: getExtension(file.name),
+    size: file.size,
+    category: "Other",
+    tags: [],
+    dateAdded: new Date().toISOString(),
+    lastOpened: null,
+    favorite: false,
+    notes: "",
+    fileBlob: file                         // ASLI FILE (File ek Blob hi hota hai)
+  };
+}
+
+// Import chal raha hai ya nahi: loading box dikhata hai, buttons band karta hai
+function setImporting(isOn) {
+  if (isOn) {
+    importStatus.classList.remove("d-none");
+  } else {
+    importStatus.classList.add("d-none");
+  }
+
+  importButtons.forEach(function (button) {
+    button.disabled = isOn;
+  });
+}
+
+// Selected files ko ek-ek karke import karta hai
+async function importFiles(files) {
+
+  // Khali selection
+  if (files.length === 0) {
+    showMessage("Koi file select nahi hui.", "warning");
+    return;
+  }
+
+  setImporting(true);
+  let savedCount = 0;
+
+  try {
+    // Pehle se saved documents (duplicate check ke liye)
+    const existingDocuments = await getAllDocuments();
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      importStatusText.textContent =
+        "Import ho raha hai: " + (i + 1) + " / " + files.length;
+
+      // Check karo. Problem ho to bata do (chup-chap skip nahi karenge)
+      const problem = checkFile(file, existingDocuments);
+      if (problem !== "") {
+        showMessage(file.name + ": " + problem, "warning");
+        continue;
+      }
+
+      // Save karo
+      try {
+        const record = makeRecord(file);
+        record.id = await addDocument(record);
+        existingDocuments.push(record);   // taaki same batch mein duplicate pakda jaye
+        savedCount = savedCount + 1;
+      } catch (error) {
+        showMessage(file.name + " save nahi hui: " + getErrorText(error), "danger");
+
+        // Storage full hai to baaki files bhi fail hongi, isliye ruk jao
+        if (error && error.name === "QuotaExceededError") {
+          showMessage("Storage full hai, baaki files import nahi ki gayi.", "danger");
+          break;
+        }
+      }
+    }
+  } catch (error) {
+    showMessage("Import nahi ho paya: " + getErrorText(error), "danger");
+  }
+
+  setImporting(false);
+
+  // Success message sirf tab, jab sach mein kuch save hua ho
+  if (savedCount > 0) {
+    showMessage(savedCount + " document(s) save ho gaye.", "success");
+  }
+
+  await showDocuments();
+}
+
+// Import button dabane par file chooser kholo
+importButtons.forEach(function (button) {
+  button.addEventListener("click", function () {
+    fileInput.click();
+  });
+});
+
+// File choose hone par import shuru karo
+fileInput.addEventListener("change", function () {
+  const selectedFiles = Array.from(fileInput.files);
+  fileInput.value = "";   // reset, taaki wahi file dobara choose ho sake
+  importFiles(selectedFiles);
+});
 
 // ====================================================
 // PART 9: PAGE START HONE PAR
 // ====================================================
 
-// Database kholta hai aur status dikhata hai
+// Database kholta hai, phir saved documents dikhata hai
 async function startDatabase() {
   try {
     await openDatabase();
-    dbStatus.textContent = "Database ready hai.";
-    dbStatus.style.color = "green";
+    await showDocuments();
   } catch (error) {
-    dbStatus.textContent = "Database nahi khul paya: " + getErrorText(error);
-    dbStatus.style.color = "red";
+    dbError.textContent =
+      "Database nahi khul paya: " + getErrorText(error) +
+      " Documents save ya dikhaye nahi ja sakte.";
+    dbError.classList.remove("d-none");
 
-    // Jab database hi nahi hai, to test buttons band kar do
-    saveTestButton.disabled = true;
-    showTestButton.disabled = true;
-    clearTestButton.disabled = true;
+    // Database nahi hai to import band
+    importButtons.forEach(function (button) {
+      button.disabled = true;
+    });
   }
 }
 
@@ -404,4 +607,4 @@ showCategoryButtons();
 categoryCount.textContent = categories.length;   // 6 categories (list se count)
 startDatabase();
 
-console.log("DocuNest: Phase 3 script loaded.");
+console.log("DocuNest: Phase 4 script loaded.");

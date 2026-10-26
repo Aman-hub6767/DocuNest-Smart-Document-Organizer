@@ -84,31 +84,30 @@
           </button>
         </div>
 
-        <!-- ========== PHASE 3 TEST BOX (Phase 4 mein hata denge) ========== -->
-        <section class="section-box border-warning">
-          <h2 class="section-title">
-            <i class="bi bi-wrench-adjustable me-1"></i> Phase 3: Database Test
-          </h2>
+        <!-- Import ke rules -->
+        <p class="small text-muted mb-3">
+          Supported: PDF, PNG, JPG, JPEG, TXT | Limit: 20 MB per file.
+          Browser ki storage limit alag-alag browsers mein alag hoti hai.
+        </p>
 
-          <p id="db-status" class="fw-semibold">Database check ho raha hai...</p>
+        <!-- Database na khule to ye error yahan dikhega -->
+        <div id="db-error" class="alert alert-danger d-none" role="alert"></div>
 
-          <div class="d-flex flex-wrap gap-2 mb-3">
-            <button id="save-test-button" class="btn btn-primary btn-sm" type="button">
-              Save test record
-            </button>
-            <button id="show-test-button" class="btn btn-outline-secondary btn-sm" type="button">
-              Show saved records
-            </button>
-            <button id="clear-test-button" class="btn btn-outline-danger btn-sm" type="button">
-              Delete all test records
-            </button>
+        <!-- Import chal raha ho to ye loading box dikhega -->
+        <div id="import-status" class="d-none">
+          <div class="alert alert-info d-flex align-items-center" role="status">
+            <div class="spinner-border spinner-border-sm me-2" aria-hidden="true"></div>
+            <span id="import-status-text">Import ho raha hai...</span>
           </div>
+        </div>
 
-          <ul id="test-output" class="mb-0">
-            <li class="text-muted">Abhi "Show saved records" nahi dabaya.</li>
-          </ul>
-        </section>
-        <!-- ========== TEST BOX END ========== -->
+        <!-- Hidden file input: Import button isse kholta hai -->
+        <input
+          id="file-input"
+          type="file"
+          class="d-none"
+          multiple
+          accept=".pdf,.png,.jpg,.jpeg,.txt">
 
         <!-- Stat cards -->
         <div class="row g-3 mb-4">
@@ -143,7 +142,7 @@
             <div class="stat-card">
               <div class="stat-icon"><i class="bi bi-hdd"></i></div>
               <div>
-                <div id="storage-used" class="stat-number">0 KB</div>
+                <div id="storage-used" class="stat-number">0 B</div>
                 <div class="stat-label">Storage Used</div>
               </div>
             </div>
@@ -179,18 +178,19 @@
           <h2 class="section-title">Your Documents</h2>
 
           <!-- Empty state: jab ek bhi document nahi hai -->
-          <div id="document-list">
-            <div class="empty-state">
-              <i class="bi bi-inbox empty-icon"></i>
-              <h3 class="empty-title">Abhi koi document nahi hai</h3>
-              <p class="empty-text">
-                PDF, PNG, JPG ya TXT file import karke shuru karo.
-              </p>
-              <button class="btn btn-primary import-button" type="button">
-                <i class="bi bi-upload me-1"></i> Import Document
-              </button>
-            </div>
+          <div id="empty-state" class="empty-state">
+            <i class="bi bi-inbox empty-icon"></i>
+            <h3 class="empty-title">Abhi koi document nahi hai</h3>
+            <p class="empty-text">
+              PDF, PNG, JPG ya TXT file import karke shuru karo.
+            </p>
+            <button class="btn btn-primary import-button" type="button">
+              <i class="bi bi-upload me-1"></i> Import Document
+            </button>
           </div>
+
+          <!-- Document cards JavaScript se yahan aayenge -->
+          <div id="document-grid" class="row g-3 d-none"></div>
         </section>
 
       </main>
