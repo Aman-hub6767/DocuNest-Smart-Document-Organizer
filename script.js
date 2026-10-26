@@ -1,5 +1,5 @@
-// DocuNest - Phase 4 script
-// Phase 2 ka UI + Phase 3 ka IndexedDB + naya: real file import.
+// DocuNest - Phase 4 script (100 MB storage limit ke saath)
+// Phase 2 ka UI + Phase 3 ka IndexedDB + Phase 4 ka file import.
 
 // ====================================================
 // PART 1: DATA AUR SETTINGS
@@ -30,7 +30,11 @@ const pageInfo = {
 
 // Import ke rules
 const ALLOWED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "txt"];
-const MAX_FILE_SIZE = 20 * 1024 * 1024;   // 20 MB (bytes mein)
+const MAX_FILE_SIZE = 100 * 1024 * 1024;       // ek file ki limit: 100 MB (bytes mein)
+
+// NAYA: DocuNest ki total storage limit
+const MAX_TOTAL_STORAGE = 100 * 1024 * 1024;    // 100 MB (bytes mein)
+const STORAGE_LIMIT_TEXT = Math.round(MAX_TOTAL_STORAGE / (1024 * 1024)) + " MB";   // "100 MB"
 
 // Abhi kaunsi category selected hai
 let selectedCategory = "All";
@@ -50,7 +54,6 @@ const categoryCount = document.getElementById("category-count");
 const navItems = document.querySelectorAll(".nav-item");
 const importButtons = document.querySelectorAll(".import-button");
 
-// Phase 4 ke naye elements
 const fileInput = document.getElementById("file-input");
 const importStatus = document.getElementById("import-status");
 const importStatusText = document.getElementById("import-status-text");
@@ -143,6 +146,16 @@ function getIconClass(extension) {
     return "bi-file-earmark-text";
   }
   return "bi-file-earmark";
+}
+
+// NAYA: Saare documents ka total size (bytes mein) jodta hai
+// (doc.size || 0 = agar size na ho to 0 maano, taaki galti na aaye)
+function getTotalSize(documents) {
+  let totalBytes = 0;
+  documents.forEach(function (doc) {
+    totalBytes = totalBytes + (doc.size || 0);
+  });
+  return totalBytes;
 }
 
 // ====================================================
@@ -330,7 +343,7 @@ function getErrorText(error) {
 }
 
 // ====================================================
-// PART 7: DOCUMENTS DIKHANA (NAYA - PHASE 4)
+// PART 7: DOCUMENTS DIKHANA
 // ====================================================
 
 // Ek document ka card banata hai
@@ -370,11 +383,10 @@ function createDocumentCard(doc) {
 
 // Stat cards ko REAL data se update karta hai
 function updateStats(documents) {
-  let totalBytes = 0;
-  let favoriteTotal = 0;
+  const totalBytes = getTotalSize(documents);
 
+  let favoriteTotal = 0;
   documents.forEach(function (doc) {
-    totalBytes = totalBytes + doc.size;
     if (doc.favorite) {
       favoriteTotal = favoriteTotal + 1;
     }
@@ -382,7 +394,21 @@ function updateStats(documents) {
 
   totalCount.textContent = documents.length;
   favoritesCount.textContent = favoriteTotal;
+
+  // NAYA: storage card mein "used" aur "limit ka kitna percent" dikhao
+  const percentUsed = Math.round((totalBytes / MAX_TOTAL_STORAGE) * 100);
   storageUsed.textContent = formatSize(totalBytes);
+
+  // storageUsed ke bagal wala element = neeche ka label
+  storageUsed.nextElementSibling.textContent =
+    "of " + STORAGE_LIMIT_TEXT + " used (" + percentUsed + "%)";
+
+  // 90% ya zyada ho gaya to number laal kar do
+  if (percentUsed >= 90) {
+    storageUsed.style.color = "#dc3545";
+  } else {
+    storageUsed.style.color = "";
+  }
 }
 
 // "Recently Added" mein sabse naye 3 documents
@@ -447,7 +473,7 @@ async function showDocuments() {
 }
 
 // ====================================================
-// PART 8: FILE IMPORT (NAYA - PHASE 4)
+// PART 8: FILE IMPORT
 // ====================================================
 
 // File ko check karta hai.
@@ -464,7 +490,7 @@ function checkFile(file, existingDocuments) {
   }
 
   if (file.size > MAX_FILE_SIZE) {
-    return "File bahut badi hai (" + formatSize(file.size) + "). Limit 20 MB hai.";
+    return "File bahut badi hai (" + formatSize(file.size) + "). Ek file ki limit 20 MB hai.";
   }
 
   // Same naam + same size = shayad pehle se import ho chuki hai
@@ -473,6 +499,15 @@ function checkFile(file, existingDocuments) {
   });
   if (isDuplicate) {
     return "Ye file pehle se import ho chuki hai.";
+  }
+
+  // NAYA: total storage limit check
+  // Ab tak jitna use hua + ye nayi file > 100 MB ho jayega?
+  const usedBytes = getTotalSize(existingDocuments);
+  if (usedBytes + file.size > MAX_TOTAL_STORAGE) {
+    const freeBytes = Math.max(0, MAX_TOTAL_STORAGE - usedBytes);
+    return "Storage limit (" + STORAGE_LIMIT_TEXT + ") poori ho jayegi. Sirf " +
+      formatSize(freeBytes) + " bacha hai. Kuch purane documents delete karo.";
   }
 
   return "";
@@ -522,7 +557,7 @@ async function importFiles(files) {
   let savedCount = 0;
 
   try {
-    // Pehle se saved documents (duplicate check ke liye)
+    // Pehle se saved documents (duplicate aur storage check ke liye)
     const existingDocuments = await getAllDocuments();
 
     for (let i = 0; i < files.length; i++) {
@@ -541,12 +576,12 @@ async function importFiles(files) {
       try {
         const record = makeRecord(file);
         record.id = await addDocument(record);
-        existingDocuments.push(record);   // taaki same batch mein duplicate pakda jaye
+        existingDocuments.push(record);   // taaki same batch mein duplicate/storage sahi gine
         savedCount = savedCount + 1;
       } catch (error) {
         showMessage(file.name + " save nahi hui: " + getErrorText(error), "danger");
 
-        // Storage full hai to baaki files bhi fail hongi, isliye ruk jao
+        // Browser ki storage full hai to baaki files bhi fail hongi, isliye ruk jao
         if (error && error.name === "QuotaExceededError") {
           showMessage("Storage full hai, baaki files import nahi ki gayi.", "danger");
           break;
