@@ -1,21 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DocuNest - Smart Document Organizer</title>
 
   <!-- Bootstrap 5 CSS (CDN) -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet">
 
   <!-- Bootstrap Icons (CDN) -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+    rel="stylesheet">
 
   <!-- Our own CSS (must come AFTER Bootstrap) -->
   <link href="style.css" rel="stylesheet">
 </head>
-
 <body>
 
   <div class="app-layout">
@@ -101,7 +103,12 @@
         </div>
 
         <!-- Hidden file input: the Import button opens it -->
-        <input id="file-input" type="file" class="d-none" multiple accept=".pdf,.png,.jpg,.jpeg,.txt">
+        <input
+          id="file-input"
+          type="file"
+          class="d-none"
+          multiple
+          accept=".pdf,.png,.jpg,.jpeg,.txt">
 
         <!-- Stat cards -->
         <div class="row g-3 mb-4">
@@ -143,12 +150,22 @@
           </div>
         </div>
 
+        <!-- Storage by file type (NEW) -->
+        <section class="section-box">
+          <h2 class="section-title">Storage by File Type</h2>
+          <div id="type-breakdown"></div>
+        </section>
+
         <!-- Search bar + category filter buttons -->
         <div class="filter-box">
           <div class="input-group mb-3">
             <span class="input-group-text"><i class="bi bi-search"></i></span>
-            <input id="search-input" type="text" class="form-control"
-              placeholder="Search by name, tag, category or notes..." aria-label="Search documents">
+            <input
+              id="search-input"
+              type="text"
+              class="form-control"
+              placeholder="Search by name, tag, category or notes..."
+              aria-label="Search documents">
           </div>
 
           <!-- Category buttons are created by JavaScript -->
@@ -201,13 +218,15 @@
   </div>
 
   <!-- ========== EDIT POPUP ========== -->
-  <div class="modal fade" id="edit-modal" tabindex="-1" aria-labelledby="edit-modal-title" aria-hidden="true">
+  <div class="modal fade" id="edit-modal" tabindex="-1"
+       aria-labelledby="edit-modal-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
 
         <div class="modal-header">
           <h2 class="modal-title fs-5" id="edit-modal-title">Edit Document</h2>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"
+                  aria-label="Close"></button>
         </div>
 
         <div class="modal-body">
@@ -227,7 +246,8 @@
 
           <div class="mb-3">
             <label for="edit-tags" class="form-label">Tags</label>
-            <input id="edit-tags" type="text" class="form-control" placeholder="e.g. resume, 2026, important">
+            <input id="edit-tags" type="text" class="form-control"
+                   placeholder="e.g. resume, 2026, important">
             <div class="form-text">
               Separate tags with commas. Maximum 10 tags, each up to 20 characters.
               To remove a tag, delete it from the text.
@@ -255,13 +275,15 @@
   </div>
 
   <!-- ========== PREVIEW POPUP ========== -->
-  <div class="modal fade" id="preview-modal" tabindex="-1" aria-labelledby="preview-modal-title" aria-hidden="true">
+  <div class="modal fade" id="preview-modal" tabindex="-1"
+       aria-labelledby="preview-modal-title" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable modal-fullscreen-md-down">
       <div class="modal-content">
 
         <div class="modal-header">
           <h2 class="modal-title fs-5 text-truncate" id="preview-modal-title">Preview</h2>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"
+                  aria-label="Close"></button>
         </div>
 
         <div class="modal-body">
@@ -294,14 +316,16 @@
     </div>
   </div>
 
-  <!-- ========== BACKUP POPUP (NEW - Phase 7) ========== -->
-  <div class="modal fade" id="backup-modal" tabindex="-1" aria-labelledby="backup-modal-title" aria-hidden="true">
+  <!-- ========== BACKUP POPUP ========== -->
+  <div class="modal fade" id="backup-modal" tabindex="-1"
+       aria-labelledby="backup-modal-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
       <div class="modal-content">
 
         <div class="modal-header">
           <h2 class="modal-title fs-5" id="backup-modal-title">Backup and Restore</h2>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"
+                  aria-label="Close"></button>
         </div>
 
         <div class="modal-body">
@@ -330,7 +354,8 @@
           </div>
 
           <!-- Hidden file input for restore -->
-          <input id="restore-input" type="file" class="d-none" accept=".json,application/json">
+          <input id="restore-input" type="file" class="d-none"
+                 accept=".json,application/json">
 
           <!-- Result message appears here -->
           <div id="backup-result"></div>
@@ -355,15 +380,16 @@
   </div>
 
   <!-- Bootstrap JS (CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
   </script>
 
   <!-- PDF.js (CDN) - used for PDF preview. Version 3.11.174 -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
   </script>
 
   <!-- Our own JavaScript (always last) -->
   <script src="script.js"></script>
 </body>
-
 </html>

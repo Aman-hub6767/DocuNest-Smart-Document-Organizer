@@ -1,21 +1,36 @@
-/* DocuNest - Phase 7 styles */
+/* DocuNest - Phase 7 styles + interactive effects + new colors */
 
 /* ---------- Colors (defined once, easy to change later) ---------- */
 :root {
-  --primary-color: #4f46e5;
-  --primary-dark: #4338ca;
-  --primary-light: #eef2ff;
-  --background-color: #f4f6fb;
-  --text-color: #1f2937;
-  --muted-color: #6b7280;
-  --border-color: #e5e7eb;
+  --primary-color: #2f6f62;
+  --primary-dark: #245a4f;
+  --primary-light: #e4f0ec;
+  --background-color: #f3f2ee;
+  --text-color: #22292b;
+  --muted-color: #6a7274;
+  --border-color: #dcdad2;
   --sidebar-width: 250px;
+
+  /* NEW: one speed and one shadow style used everywhere */
+  --speed: 0.2s;
+  --shadow-small: 0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-hover: 0 8px 20px rgba(47, 111, 98, 0.15);
 }
 
 body {
   background-color: var(--background-color);
   color: var(--text-color);
   font-family: "Segoe UI", Arial, sans-serif;
+}
+
+/* NEW: smooth scrolling + nicer text selection */
+html {
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background-color: var(--primary-light);
+  color: var(--primary-dark);
 }
 
 /* ---------- Layout ---------- */
@@ -60,6 +75,7 @@ body {
   gap: 0.25rem;
 }
 
+/* NEW: nav item moves a little to the right on hover */
 .nav-item {
   display: flex;
   align-items: center;
@@ -69,15 +85,25 @@ body {
   color: var(--text-color);
   text-decoration: none;
   font-weight: 500;
+  border-left: 3px solid transparent;
+  transition: background-color var(--speed), color var(--speed),
+              transform var(--speed), border-color var(--speed);
 }
 
 .nav-item:hover {
   background-color: var(--primary-light);
+  color: var(--primary-color);
+  transform: translateX(4px);
+}
+
+.nav-item:active {
+  transform: translateX(4px) scale(0.98);
 }
 
 .nav-item.active {
   background-color: var(--primary-light);
   color: var(--primary-color);
+  border-left-color: var(--primary-color);  /* NEW: line on the active page */
 }
 
 .sidebar-footer {
@@ -105,6 +131,16 @@ body {
   font-size: 1.6rem;
   line-height: 1;
   color: var(--text-color);
+  border-radius: 8px;
+  transition: background-color var(--speed), transform var(--speed);
+}
+
+.menu-button:hover {
+  background-color: var(--primary-light);
+}
+
+.menu-button:active {
+  transform: scale(0.9);
 }
 
 .topbar-title {
@@ -116,7 +152,7 @@ body {
   display: none;
 }
 
-/* ---------- Keyboard focus outline (NEW - Phase 7) ---------- */
+/* ---------- Keyboard focus outline ---------- */
 .nav-item:focus-visible,
 .chip:focus-visible,
 .icon-button:focus-visible,
@@ -147,6 +183,26 @@ body {
 }
 
 /* ---------- Buttons ---------- */
+/* NEW: buttons lift on hover and press down on click */
+.btn-primary,
+.btn-outline-primary {
+  transition: background-color var(--speed), border-color var(--speed),
+              color var(--speed), transform var(--speed),
+              box-shadow var(--speed);
+}
+
+.btn-primary:hover,
+.btn-outline-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.btn-primary:active,
+.btn-outline-primary:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow: none;
+}
+
 .btn-primary {
   background-color: var(--primary-color);
   border-color: var(--primary-color);
@@ -177,8 +233,17 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 14px;
   padding: 1rem;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-small);
   height: 100%;
+  transition: transform var(--speed), box-shadow var(--speed),
+              border-color var(--speed);
+}
+
+/* NEW: card lifts up a little on hover */
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-hover);
+  border-color: var(--primary-color);
 }
 
 .stat-icon {
@@ -192,6 +257,15 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: background-color var(--speed), color var(--speed),
+              transform var(--speed);
+}
+
+/* NEW: icon fills with color and tilts when the card is hovered */
+.stat-card:hover .stat-icon {
+  background-color: var(--primary-color);
+  color: #ffffff;
+  transform: rotate(-8deg) scale(1.08);
 }
 
 .stat-number {
@@ -213,7 +287,23 @@ body {
   border-radius: 14px;
   padding: 1rem 1.25rem;
   margin-bottom: 1.25rem;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-small);
+}
+
+/* NEW: the search box glows when you click inside it */
+.filter-box:focus-within {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(47, 111, 98, 0.12);
+}
+
+.filter-box {
+  transition: border-color var(--speed), box-shadow var(--speed);
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(47, 111, 98, 0.15);
 }
 
 .chip-row {
@@ -229,10 +319,19 @@ body {
   border-radius: 999px;
   padding: 0.3rem 0.9rem;
   font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color var(--speed), border-color var(--speed),
+              color var(--speed), transform var(--speed);
 }
 
 .chip:hover {
   background-color: var(--primary-light);
+  border-color: var(--primary-color);
+  transform: translateY(-1px);
+}
+
+.chip:active {
+  transform: scale(0.94);
 }
 
 .chip.active {
@@ -254,9 +353,12 @@ body {
   padding: 2rem 1rem;
 }
 
+/* NEW: the empty icon floats up and down slowly */
 .empty-icon {
   font-size: 3rem;
   color: var(--muted-color);
+  display: inline-block;
+  animation: float 3s ease-in-out infinite;
 }
 
 .empty-title {
@@ -280,6 +382,16 @@ body {
   border-radius: 12px;
   padding: 0.9rem;
   height: 100%;
+  transition: transform var(--speed), box-shadow var(--speed),
+              border-color var(--speed);
+  animation: card-in 0.3s ease-out;  /* NEW: new cards appear smoothly */
+}
+
+/* NEW: document card lifts on hover */
+.doc-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-hover);
+  border-color: var(--primary-color);
 }
 
 .doc-icon {
@@ -293,6 +405,11 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: transform var(--speed);
+}
+
+.doc-card:hover .doc-icon {
+  transform: scale(1.1);
 }
 
 /* min-width: 0 lets a long name shrink to "..." instead of overflowing the card */
@@ -306,6 +423,11 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color var(--speed);
+}
+
+.doc-card:hover .doc-name {
+  color: var(--primary-color);
 }
 
 .doc-meta {
@@ -329,13 +451,19 @@ body {
 
 .tag-badge {
   display: inline-block;
-  background-color: #f3f4f6;
+  background-color: #eeece6;
   color: var(--muted-color);
   border-radius: 6px;
   padding: 0.05rem 0.45rem;
   font-size: 0.75rem;
   margin-right: 0.25rem;
   margin-bottom: 0.15rem;
+  transition: background-color var(--speed), color var(--speed);
+}
+
+.tag-badge:hover {
+  background-color: var(--primary-light);
+  color: var(--primary-color);
 }
 
 .doc-notes {
@@ -363,20 +491,29 @@ body {
   line-height: 1;
   padding: 0.35rem 0.5rem;
   border-radius: 8px;
+  cursor: pointer;
+  transition: background-color var(--speed), color var(--speed),
+              transform var(--speed);
 }
 
 .icon-button:hover {
   background-color: var(--primary-light);
   color: var(--primary-color);
+  transform: scale(1.15);
+}
+
+.icon-button:active {
+  transform: scale(0.9);
 }
 
 .icon-button.favorite-on {
-  color: #f59e0b;      /* yellow star */
+  color: #d4952b;      /* yellow star */
+  animation: pop 0.3s ease-out;  /* NEW: star pops when you mark favorite */
 }
 
 .icon-button.danger:hover {
-  background-color: #fee2e2;
-  color: #dc3545;
+  background-color: #f6e1de;
+  color: #b4443a;
 }
 
 /* ---------- Recently Added list ---------- */
@@ -384,8 +521,16 @@ body {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.55rem 0;
+  padding: 0.55rem 0.5rem;
   border-bottom: 1px solid var(--border-color);
+  border-radius: 8px;
+  transition: background-color var(--speed), transform var(--speed);
+}
+
+/* NEW: row highlights on hover */
+.recent-item:hover {
+  background-color: var(--primary-light);
+  transform: translateX(4px);
 }
 
 .recent-item:last-child {
@@ -415,7 +560,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background-color: #f9fafb;
+  background-color: #faf9f6;
   border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 1rem;
@@ -426,6 +571,7 @@ body {
   max-width: 100%;
   max-height: 65vh;
   object-fit: contain;
+  animation: fade-in 0.3s ease-out;  /* NEW: preview fades in */
 }
 
 /* The PDF page (canvas) fits the screen width */
@@ -434,6 +580,7 @@ body {
   height: auto;
   background-color: #ffffff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  animation: fade-in 0.3s ease-out;
 }
 
 .pdf-toolbar {
@@ -476,6 +623,28 @@ body {
   word-break: break-word;
 }
 
+/* ---------- Animations (NEW) ---------- */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.4); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* ---------- Tablet / Mobile (screens smaller than 992px) ---------- */
 @media (max-width: 991px) {
 
@@ -488,6 +657,7 @@ body {
   /* Adding the "open" class slides the sidebar in */
   .sidebar.open {
     transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);  /* NEW */
   }
 
   .main-area {
@@ -512,10 +682,11 @@ body {
     bottom: 0;
     background-color: rgba(0, 0, 0, 0.4);
     z-index: 999;
+    animation: fade-in 0.25s ease-out;  /* NEW */
   }
 }
 
-/* ---------- Small phones (screens smaller than 576px) (NEW - Phase 7) ---------- */
+/* ---------- Small phones (screens smaller than 576px) ---------- */
 @media (max-width: 575px) {
 
   .content {
@@ -536,3 +707,44 @@ body {
     font-size: 1.4rem;
   }
 }
+
+/* ---------- Touch screens (NEW) ---------- */
+/* Phones have no hover, so we remove the "lift" effect there */
+@media (hover: none) {
+  .stat-card:hover,
+  .doc-card:hover,
+  .btn-primary:hover,
+  .btn-outline-primary:hover,
+  .nav-item:hover,
+  .recent-item:hover {
+    transform: none;
+  }
+}
+
+/* ---------- Reduced motion (NEW) ---------- */
+/* If a user turned off animations in their system, we respect it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- Stat card colors (NEW) ---------- */
+/* Each stat card gets its own soft color, like colored folder tabs */
+.stat-icon {
+  background-color: var(--icon-bg, var(--primary-light));
+  color: var(--icon-fg, var(--primary-color));
+}
+
+.stat-card:hover .stat-icon {
+  background-color: var(--icon-fg, var(--primary-color));
+  color: #ffffff;
+}
+
+.row > :nth-child(2) .stat-card { --icon-bg: #f8ecd3; --icon-fg: #a8741a; }
+.row > :nth-child(3) .stat-card { --icon-bg: #e1eaf4; --icon-fg: #35608f; }
+.row > :nth-child(4) .stat-card { --icon-bg: #f5e0dc; --icon-fg: #a8483d; }

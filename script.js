@@ -1,4 +1,4 @@
-// DocuNest - Phase 7 script
+// DocuNest - Phase 7 script (with the file type dashboard)
 // UI + IndexedDB + Import + Organization + Search/Filters + Preview + Backup
 
 // ====================================================
@@ -26,9 +26,18 @@ const pageInfo = {
 
 // Import rules
 const ALLOWED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "txt"];
-const MAX_FILE_SIZE = 100 * 1024 * 1024;         // limit for one file: 20 MB (in bytes)
-const MAX_TOTAL_STORAGE = 1000 * 1024 * 1024;    // total DocuNest limit: 100 MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024;         // limit for one file: 1000 MB (in bytes)
+const MAX_TOTAL_STORAGE = 1000 * 1024 * 1024;    // total DocuNest limit: 10000 MB
 const STORAGE_LIMIT_TEXT = Math.round(MAX_TOTAL_STORAGE / (1024 * 1024)) + " MB";
+
+// NEW: The file types shown in the "Storage by File Type" section.
+// Each group has a label, the extensions it covers, and an icon.
+const FILE_TYPE_GROUPS = [
+  { label: "PDF", extensions: ["pdf"], icon: "bi-file-earmark-pdf" },
+  { label: "PNG", extensions: ["png"], icon: "bi-file-earmark-image" },
+  { label: "JPG / JPEG", extensions: ["jpg", "jpeg"], icon: "bi-file-earmark-image" },
+  { label: "TXT", extensions: ["txt"], icon: "bi-file-earmark-text" }
+];
 
 // Tag rules
 const MAX_TAGS = 10;          // up to 10 tags per document
@@ -40,7 +49,7 @@ const MAX_TEXT_PREVIEW = 200000;
 // PDF.js worker file (PDF.js background helper)
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-// Backup rules (NEW)
+// Backup rules
 const BACKUP_VERSION = 1;                       // backup format version
 const MAX_BACKUP_FILE_SIZE = 5 * 1024 * 1024;   // a metadata backup should be far smaller than 5 MB
 
@@ -87,6 +96,7 @@ const dbError = document.getElementById("db-error");
 const totalCount = document.getElementById("total-count");
 const favoritesCount = document.getElementById("favorites-count");
 const storageUsed = document.getElementById("storage-used");
+const typeBreakdown = document.getElementById("type-breakdown");   // NEW
 const recentList = document.getElementById("recent-list");
 const emptyState = document.getElementById("empty-state");
 const documentGrid = document.getElementById("document-grid");
@@ -117,7 +127,7 @@ const previewArea = document.getElementById("preview-area");
 const previewInfo = document.getElementById("preview-info");
 const downloadButton = document.getElementById("download-button");
 
-// Backup popup elements (NEW)
+// Backup popup elements
 const backupModal = new bootstrap.Modal(document.getElementById("backup-modal"));
 const backupSummary = document.getElementById("backup-summary");
 const backupResult = document.getElementById("backup-result");
@@ -179,6 +189,11 @@ function formatSize(bytes) {
     return (bytes / 1024).toFixed(1) + " KB";
   }
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+// NEW: "1 file" or "3 files"
+function formatFileCount(count) {
+  return count + (count === 1 ? " file" : " files");
 }
 
 // Makes a date readable: "26 Oct 2026"
@@ -591,7 +606,7 @@ function updateDocument(record) {
   });
 }
 
-// NEW: Updates many records in ONE transaction.
+// Updates many records in ONE transaction.
 // A transaction is all-or-nothing: either every record is saved, or none.
 function updateManyDocuments(records) {
   return new Promise(function (resolve, reject) {
@@ -777,6 +792,87 @@ function updateStats(documents) {
   }
 }
 
+// NEW: "Storage by File Type" section.
+// For each file type it shows: number of files, storage used, and the share of total storage.
+function showTypeBreakdown(documents) {
+  typeBreakdown.innerHTML = "";
+
+  // No documents: show a short help message
+  if (documents.length === 0) {
+    typeBreakdown.appendChild(
+      makeElement(
+        "p",
+        "text-muted mb-0",
+        "Import some documents to see how many files of each type you have and how much storage they use."
+      )
+    );
+    return;
+  }
+
+  const totalBytes = getTotalSize(documents);
+
+  FILE_TYPE_GROUPS.forEach(function (group) {
+
+    // Only the documents of this type
+    const files = documents.filter(function (doc) {
+      return group.extensions.includes(doc.extension);
+    });
+
+    const groupBytes = getTotalSize(files);
+    const percent = totalBytes > 0 ? Math.round((groupBytes / totalBytes) * 100) : 0;
+
+    const row = makeElement("div", "mb-3");
+
+    // Top line: icon + label on the left, numbers on the right
+    const topLine = makeElement("div", "d-flex justify-content-between flex-wrap gap-1 mb-1");
+
+    const labelPart = makeElement("span", "fw-semibold");
+    const icon = makeElement("i", "bi " + group.icon + " me-2");
+    icon.style.color = "var(--primary-color)";
+    labelPart.appendChild(icon);
+    labelPart.append(group.label);
+
+    const numbersPart = makeElement(
+      "span",
+      "small text-muted",
+      formatFileCount(files.length) + " | " + formatSize(groupBytes) + " (" + percent + "%)"
+    );
+
+    topLine.appendChild(labelPart);
+    topLine.appendChild(numbersPart);
+
+    // Progress bar: how big is this type's share of the used storage
+    const progress = makeElement("div", "progress");
+    progress.style.height = "8px";
+    progress.setAttribute("role", "progressbar");
+    progress.setAttribute("aria-label", group.label + " share of used storage");
+    progress.setAttribute("aria-valuenow", percent);
+    progress.setAttribute("aria-valuemin", "0");
+    progress.setAttribute("aria-valuemax", "100");
+
+    const bar = makeElement("div", "progress-bar");
+    bar.style.width = percent + "%";
+    bar.style.backgroundColor = "var(--primary-color)";
+    progress.appendChild(bar);
+
+    row.appendChild(topLine);
+    row.appendChild(progress);
+    typeBreakdown.appendChild(row);
+  });
+
+  // Last line: the total
+  const totalLine = makeElement("div", "d-flex justify-content-between flex-wrap gap-1 border-top pt-2");
+  totalLine.appendChild(makeElement("span", "fw-semibold", "Total"));
+  totalLine.appendChild(
+    makeElement(
+      "span",
+      "small text-muted",
+      formatFileCount(documents.length) + " | " + formatSize(totalBytes) + " of " + STORAGE_LIMIT_TEXT
+    )
+  );
+  typeBreakdown.appendChild(totalLine);
+}
+
 // "Recently Added": the 3 newest documents
 function showRecentList(documents) {
   recentList.innerHTML = "";
@@ -845,6 +941,7 @@ async function showDocuments() {
     });
 
     updateStats(allDocuments);
+    showTypeBreakdown(allDocuments);   // NEW
     showRecentList(allDocuments);
     refreshView();   // apply filters and show the list
   } catch (error) {
@@ -1106,7 +1203,7 @@ async function openEditModal(id) {
 // "Save changes": check the input, then save to the database
 async function saveEdit() {
 
-  // BUG FIX: ignore the click or Enter key while a save is already running
+  // Ignore the click or Enter key while a save is already running
   if (editSaveButton.disabled) {
     return;
   }
@@ -1158,7 +1255,7 @@ async function saveEdit() {
   } catch (error) {
     showEditError("Could not save: " + getErrorText(error));
   } finally {
-    // BUG FIX: "finally" always runs, even after an early return,
+    // "finally" always runs, even after an early return,
     // so the Save button can never stay disabled by mistake.
     editSaveButton.disabled = false;
   }
@@ -1492,7 +1589,7 @@ function downloadCurrentFile() {
 downloadButton.addEventListener("click", downloadCurrentFile);
 
 // ====================================================
-// PART 11: BACKUP AND RESTORE (NEW - PHASE 7)
+// PART 11: BACKUP AND RESTORE
 // ====================================================
 
 // Shows a result message inside the backup popup
@@ -1778,6 +1875,7 @@ async function startDatabase() {
 
 showCategoryButtons();
 fillCategoryDropdown();
+showTypeBreakdown([]);   // shows the empty message until documents load
 startDatabase();
 
-console.log("DocuNest: Phase 7 script loaded.");
+console.log("DocuNest: Phase 7 script loaded (with file type dashboard).");
