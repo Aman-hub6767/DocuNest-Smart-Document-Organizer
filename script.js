@@ -1,82 +1,102 @@
-// DocuNest - Phase 7 script (with the file type dashboard)
-// UI + IndexedDB + Import + Organization + Search/Filters + Preview + Backup
+// DocuNest - script.js
+// Documents are saved in the browser with IndexedDB. Nothing is uploaded anywhere.
 
-// ====================================================
-// PART 1: DATA AND SETTINGS
-// ====================================================
+// ---------- settings ----------
 
-// The list of categories
 const categories = ["Education", "Certificates", "Personal", "Work", "Finance", "Other"];
 
-// Title and description for each sidebar view
+// title and description for the sidebar views
 const pageInfo = {
-  all: {
-    title: "All Documents",
-    description: "View and manage all your documents here."
-  },
-  favorites: {
-    title: "Favorites",
-    description: "Documents you marked with a star appear here."
-  },
-  recent: {
-    title: "Recent Documents",
-    description: "Documents you opened appear here (most recent first)."
-  }
+  all: { title: "All Documents", description: "View and manage all your documents here." },
+  favorites: { title: "Favorites", description: "Documents you marked with a star appear here." },
+  recent: { title: "Recent Documents", description: "Documents you opened appear here (most recent first)." }
 };
 
-// Import rules
-const ALLOWED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "txt"];
-const MAX_FILE_SIZE = 100 * 1024 * 1024;         // limit for one file: 1000 MB (in bytes)
-const MAX_TOTAL_STORAGE = 1000 * 1024 * 1024;    // total DocuNest limit: 10000 MB
-const STORAGE_LIMIT_TEXT = Math.round(MAX_TOTAL_STORAGE / (1024 * 1024)) + " MB";
+// size limits
+const MB = 1024 * 1024;
+const MAX_FILE_SIZE = 1000 * MB;        // one file
+const MAX_TOTAL_STORAGE = 10000 * MB;   // all files together
+const MAX_PREVIEW_SIZE = 50 * MB;       // bigger files can be downloaded but not previewed
+const FILE_LIMIT_TEXT = (MAX_FILE_SIZE / MB) + " MB";
+const STORAGE_LIMIT_TEXT = (MAX_TOTAL_STORAGE / MB) + " MB";
 
-// NEW: The file types shown in the "Storage by File Type" section.
-// Each group has a label, the extensions it covers, and an icon.
-const FILE_TYPE_GROUPS = [
-  { label: "PDF", extensions: ["pdf"], icon: "bi-file-earmark-pdf" },
-  { label: "PNG", extensions: ["png"], icon: "bi-file-earmark-image" },
-  { label: "JPG / JPEG", extensions: ["jpg", "jpeg"], icon: "bi-file-earmark-image" },
-  { label: "TXT", extensions: ["txt"], icon: "bi-file-earmark-text" }
+// Every file type the app accepts is in this list.
+// To support a new type, add one line here.
+// preview can be: "pdf", "image", "text", "markdown", "docx", "xlsx" or "none"
+const FILE_TYPES = [
+  { label: "PDF", extensions: ["pdf"], icon: "bi-file-earmark-pdf", preview: "pdf" },
+  { label: "PNG", extensions: ["png"], icon: "bi-file-earmark-image", preview: "image" },
+  { label: "JPG / JPEG", extensions: ["jpg", "jpeg"], icon: "bi-file-earmark-image", preview: "image" },
+  { label: "TXT", extensions: ["txt"], icon: "bi-file-earmark-text", preview: "text" },
+  { label: "Markdown", extensions: ["md"], icon: "bi-markdown", preview: "markdown" },
+  { label: "DOCX", extensions: ["docx"], icon: "bi-file-earmark-word", preview: "docx" },
+  { label: "DOC", extensions: ["doc"], icon: "bi-file-earmark-word", preview: "none" },
+  { label: "XLSX", extensions: ["xlsx"], icon: "bi-file-earmark-excel", preview: "xlsx" }
 ];
 
-// Tag rules
-const MAX_TAGS = 10;          // up to 10 tags per document
-const MAX_TAG_LENGTH = 20;    // up to 20 characters per tag
+// all allowed extensions, taken from the list above
+const ALLOWED_EXTENSIONS = [];
+FILE_TYPES.forEach(function (type) {
+  type.extensions.forEach(function (extension) {
+    ALLOWED_EXTENSIONS.push(extension);
+  });
+});
 
-// The TXT preview shows at most this many characters (keeps the page fast)
-const MAX_TEXT_PREVIEW = 200000;
+const MAX_TAGS = 10;
+const MAX_TAG_LENGTH = 20;
 
-// PDF.js worker file (PDF.js background helper)
+// preview limits
+const MAX_TEXT_PREVIEW = 200000;   // characters shown for TXT and Markdown
+const MAX_SHEET_ROWS = 200;        // rows shown for each Excel sheet
+const MAX_SHEET_COLUMNS = 30;      // columns shown for each Excel sheet
+
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-// Backup rules
-const BACKUP_VERSION = 1;                       // backup format version
-const MAX_BACKUP_FILE_SIZE = 5 * 1024 * 1024;   // a metadata backup should be far smaller than 5 MB
+// these libraries are loaded from a CDN only when a preview needs them
+const LIBRARY_URLS = {
+  mammoth: "https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js",
+  marked: "https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js",
+  dompurify: "https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js",
+  xlsx: "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
+};
+const scriptPromises = new Map();   // remembers which libraries were already requested
 
-// ---------- Values that change while the app runs (state) ----------
+// backup
+const BACKUP_VERSION = 1;
+const MAX_BACKUP_FILE_SIZE = 5 * MB;
+const BACKUP_FIELDS = [
+  "id", "name", "originalName", "type", "extension", "size",
+  "category", "tags", "dateAdded", "lastOpened", "favorite", "notes"
+];
 
-let allDocuments = [];          // all documents from the database
+// database
+const DB_NAME = "DocuNestDB";
+const DB_VERSION = 2;
+const DOCUMENT_STORE = "documents";   // the details of each document
+const FILE_STORE = "files";           // the real files (same id as the document)
+
+// ---------- state and html elements ----------
+
+let db = null;
+let allDocuments = [];          // all documents (details only)
 let currentView = "all";        // "all", "favorites" or "recent"
-let selectedCategory = "All";   // category filter
-let searchText = "";            // text in the search box (lowercase)
-let searchTimer = null;         // timer used for the search delay (debounce)
-let editingId = null;           // which document is open in the edit popup
+let selectedCategory = "All";
+let searchText = "";
+let searchTimer = null;
+let editingId = null;           // the document open in the edit popup
 
-// Preview popup state
-let previewRecord = null;       // the document being previewed
-let previewToken = 0;           // a number for each preview (to stop old work)
-let currentObjectUrl = null;    // temporary image URL (must be revoked later)
-let currentPdf = null;          // the open PDF
-let currentPageNumber = 1;      // current PDF page
-let isRenderingPage = false;    // is a PDF page being drawn right now?
+// preview popup
+let previewRecord = null;       // details of the document being previewed
+let previewFile = null;         // the real file being previewed
+let previewToken = 0;           // changes with every preview, so old work can stop
+let currentObjectUrl = null;    // temporary image address
+let currentPdf = null;
+let currentPageNumber = 1;
+let isRenderingPage = false;
 let pdfCanvas = null;
 let pdfPrevButton = null;
 let pdfNextButton = null;
 let pdfPageLabel = null;
-
-// ====================================================
-// PART 2: GETTING HTML ELEMENTS
-// ====================================================
 
 const sidebar = document.getElementById("sidebar");
 const sidebarBackdrop = document.getElementById("sidebar-backdrop");
@@ -88,7 +108,6 @@ const categoryFilters = document.getElementById("category-filters");
 const categoryCount = document.getElementById("category-count");
 const navItems = document.querySelectorAll(".nav-item");
 const importButtons = document.querySelectorAll(".import-button");
-
 const fileInput = document.getElementById("file-input");
 const importStatus = document.getElementById("import-status");
 const importStatusText = document.getElementById("import-status-text");
@@ -96,12 +115,10 @@ const dbError = document.getElementById("db-error");
 const totalCount = document.getElementById("total-count");
 const favoritesCount = document.getElementById("favorites-count");
 const storageUsed = document.getElementById("storage-used");
-const typeBreakdown = document.getElementById("type-breakdown");   // NEW
+const typeBreakdown = document.getElementById("type-breakdown");
 const recentList = document.getElementById("recent-list");
 const emptyState = document.getElementById("empty-state");
 const documentGrid = document.getElementById("document-grid");
-
-// Search and filter elements
 const searchInput = document.getElementById("search-input");
 const resultInfo = document.getElementById("result-info");
 const noResults = document.getElementById("no-results");
@@ -109,7 +126,6 @@ const noResultsTitle = document.getElementById("no-results-title");
 const noResultsText = document.getElementById("no-results-text");
 const clearFiltersButton = document.getElementById("clear-filters-button");
 
-// Edit popup elements
 const editModalElement = document.getElementById("edit-modal");
 const editModal = new bootstrap.Modal(editModalElement);
 const editError = document.getElementById("edit-error");
@@ -119,7 +135,6 @@ const editTags = document.getElementById("edit-tags");
 const editNotes = document.getElementById("edit-notes");
 const editSaveButton = document.getElementById("edit-save-button");
 
-// Preview popup elements
 const previewModalElement = document.getElementById("preview-modal");
 const previewModal = new bootstrap.Modal(previewModalElement);
 const previewTitle = document.getElementById("preview-modal-title");
@@ -127,7 +142,6 @@ const previewArea = document.getElementById("preview-area");
 const previewInfo = document.getElementById("preview-info");
 const downloadButton = document.getElementById("download-button");
 
-// Backup popup elements
 const backupModal = new bootstrap.Modal(document.getElementById("backup-modal"));
 const backupSummary = document.getElementById("backup-summary");
 const backupResult = document.getElementById("backup-result");
@@ -135,17 +149,13 @@ const exportButton = document.getElementById("export-button");
 const restoreButton = document.getElementById("restore-button");
 const restoreInput = document.getElementById("restore-input");
 
-// Tell PDF.js where its worker file is (only if the library loaded)
 if (window.pdfjsLib) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL;
 }
 
-// ====================================================
-// PART 3: SMALL HELPER FUNCTIONS
-// ====================================================
+// ---------- helper functions ----------
 
-// Creates an HTML element. If text is given, it is set with textContent.
-// textContent is safe: a file name is never treated as HTML.
+// creates an element. The text is set with textContent, so a file name is never read as html.
 function makeElement(tagName, className, text) {
   const element = document.createElement(tagName);
   element.className = className;
@@ -155,68 +165,64 @@ function makeElement(tagName, className, text) {
   return element;
 }
 
-// Shows a success / error / info message (disappears after 5 seconds)
-// type: "success", "danger", "warning" or "info"
+// creates an element and adds it to a parent
+function addElement(parent, tagName, className, text) {
+  const element = makeElement(tagName, className, text);
+  parent.appendChild(element);
+  return element;
+}
+
+function setVisible(element, isVisible) {
+  element.classList.toggle("d-none", !isVisible);
+}
+
+// type: success, danger, warning or info. The message goes away after 5 seconds.
 function showMessage(text, type) {
-  const box = document.createElement("div");
-  box.className = "alert alert-" + type + " alert-dismissible fade show";
+  const box = addElement(messageArea, "div", "alert alert-" + type + " alert-dismissible fade show");
   box.setAttribute("role", "alert");
+  addElement(box, "span", "", text);
 
-  const messageText = document.createElement("span");
-  messageText.textContent = text;
-
-  const closeButton = document.createElement("button");
+  const closeButton = addElement(box, "button", "btn-close");
   closeButton.type = "button";
-  closeButton.className = "btn-close";
   closeButton.setAttribute("data-bs-dismiss", "alert");
   closeButton.setAttribute("aria-label", "Close");
-
-  box.appendChild(messageText);
-  box.appendChild(closeButton);
-  messageArea.appendChild(box);
 
   setTimeout(function () {
     box.remove();
   }, 5000);
 }
 
-// Makes a file size readable: 1536 -> "1.5 KB"
 function formatSize(bytes) {
   if (bytes < 1024) {
     return bytes + " B";
   }
-  if (bytes < 1024 * 1024) {
+  if (bytes < MB) {
     return (bytes / 1024).toFixed(1) + " KB";
   }
-  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  if (bytes < 1024 * MB) {
+    return (bytes / MB).toFixed(1) + " MB";
+  }
+  return (bytes / (1024 * MB)).toFixed(2) + " GB";
 }
 
-// NEW: "1 file" or "3 files"
 function formatFileCount(count) {
-  return count + (count === 1 ? " file" : " files");
+  if (count === 1) {
+    return "1 file";
+  }
+  return count + " files";
 }
 
-// Makes a date readable: "26 Oct 2026"
-function formatDate(isoText) {
-  return new Date(isoText).toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
+// "26 Oct 2026" or, with withTime = true, "26 Oct 2026, 3:45 pm"
+function formatDate(isoText, withTime) {
+  const options = { day: "2-digit", month: "short", year: "numeric" };
+  if (withTime) {
+    options.hour = "numeric";
+    options.minute = "2-digit";
+  }
+  return new Date(isoText).toLocaleString("en-IN", options);
 }
 
-// Date + time: "26 Oct 2026, 3:45 pm"
-function formatDateTime(isoText) {
-  return new Date(isoText).toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
-}
-
-// Gets the extension from a file name: "Resume.PDF" -> "pdf"
+// "Resume.PDF" gives "pdf"
 function getExtension(fileName) {
   const dotIndex = fileName.lastIndexOf(".");
   if (dotIndex === -1) {
@@ -225,100 +231,113 @@ function getExtension(fileName) {
   return fileName.slice(dotIndex + 1).toLowerCase();
 }
 
-// Icon class for each file extension
+// finds the FILE_TYPES entry of an extension (undefined if there is none)
+function findFileType(extension) {
+  return FILE_TYPES.find(function (type) {
+    return type.extensions.includes(extension);
+  });
+}
+
 function getIconClass(extension) {
-  if (extension === "pdf") {
-    return "bi-file-earmark-pdf";
-  }
-  if (extension === "png" || extension === "jpg" || extension === "jpeg") {
-    return "bi-file-earmark-image";
-  }
-  if (extension === "txt") {
-    return "bi-file-earmark-text";
+  const type = findFileType(extension);
+  if (type) {
+    return type.icon;
   }
   return "bi-file-earmark";
 }
 
-// Adds up the size (in bytes) of all documents
-// (doc.size || 0 means: if there is no size, count 0, so nothing breaks)
 function getTotalSize(documents) {
   let totalBytes = 0;
   documents.forEach(function (doc) {
-    totalBytes = totalBytes + (doc.size || 0);
+    if (doc.size) {
+      totalBytes = totalBytes + doc.size;
+    }
   });
   return totalBytes;
 }
 
-// Downloads a Blob as a file with the given name (used by Download and Export)
 function downloadBlob(blob, fileName) {
   const url = URL.createObjectURL(blob);
-
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
   document.body.appendChild(link);
   link.click();
   link.remove();
-
-  // Revoke the temporary URL a little later to free memory
   setTimeout(function () {
     URL.revokeObjectURL(url);
   }, 1000);
 }
 
-// ====================================================
-// PART 4: SIDEBAR AND MENU
-// ====================================================
+// sets the file chooser list and the "Supported" text from ALLOWED_EXTENSIONS,
+// so index.html does not need to change when a file type is added
+function updateSupportedTypes() {
+  const typeList = ALLOWED_EXTENSIONS.map(function (extension) {
+    return extension.toUpperCase();
+  }).join(", ");
 
-function openSidebar() {
-  sidebar.classList.add("open");
-  sidebarBackdrop.classList.add("show");
+  fileInput.accept = "." + ALLOWED_EXTENSIONS.join(",.");
+
+  document.querySelectorAll("p").forEach(function (paragraph) {
+    if (paragraph.textContent.trim().startsWith("Supported:")) {
+      paragraph.textContent =
+        "Supported: " + typeList + " | Limit: " + FILE_LIMIT_TEXT + " per file, " +
+        STORAGE_LIMIT_TEXT + " total. The real browser storage limit can differ between browsers.";
+    }
+  });
+
+  const emptyText = emptyState.querySelector(".empty-text");
+  if (emptyText) {
+    emptyText.textContent = "Import a document, spreadsheet, image or text file to get started.";
+  }
 }
 
-function closeSidebar() {
-  sidebar.classList.remove("open");
-  sidebarBackdrop.classList.remove("show");
+// ---------- sidebar and menu ----------
+
+function setSidebar(isOpen) {
+  sidebar.classList.toggle("open", isOpen);
+  sidebarBackdrop.classList.toggle("show", isOpen);
 }
 
-menuButton.addEventListener("click", openSidebar);
-sidebarBackdrop.addEventListener("click", closeSidebar);
+menuButton.addEventListener("click", function () {
+  setSidebar(true);
+});
 
-// Clicking a menu item changes the view (All / Favorites / Recent)
+sidebarBackdrop.addEventListener("click", function () {
+  setSidebar(false);
+});
+
+// "Backup" opens a popup. The other items change the view.
 function selectNavItem(clickedItem) {
   const viewName = clickedItem.dataset.view;
 
-  // "Backup" opens a popup instead of changing the view
   if (viewName === "backup") {
-    closeSidebar();
+    setSidebar(false);
     openBackupModal();
     return;
   }
 
   navItems.forEach(function (item) {
-    item.classList.remove("active");
+    item.classList.toggle("active", item === clickedItem);
   });
-  clickedItem.classList.add("active");
 
   currentView = viewName;
   pageTitle.textContent = pageInfo[viewName].title;
   pageDescription.textContent = pageInfo[viewName].description;
 
   refreshView();
-  closeSidebar();
+  setSidebar(false);
 }
 
 navItems.forEach(function (item) {
   item.addEventListener("click", function (event) {
-    event.preventDefault();   // stops the link from reloading the page
+    event.preventDefault();
     selectNavItem(item);
   });
 });
 
-// ====================================================
-// PART 5: SEARCH AND FILTERS
-// ====================================================
+// ---------- search and filters ----------
 
-// How many documents are in a category (out of all documents)
 function countByCategory(name) {
   if (name === "All") {
     return allDocuments.length;
@@ -328,106 +347,77 @@ function countByCategory(name) {
   }).length;
 }
 
-// Creates the category buttons: All (5), Education (2), ...
 function showCategoryButtons() {
   categoryFilters.innerHTML = "";
 
-  const allNames = ["All"].concat(categories);
-
-  allNames.forEach(function (name) {
-    const button = document.createElement("button");
+  ["All"].concat(categories).forEach(function (name) {
+    const button = addElement(categoryFilters, "button", "chip", name + " (" + countByCategory(name) + ")");
     button.type = "button";
-    button.className = "chip";
-    button.textContent = name + " (" + countByCategory(name) + ")";
-
-    if (name === selectedCategory) {
-      button.classList.add("active");
-      button.setAttribute("aria-pressed", "true");
-    } else {
-      button.setAttribute("aria-pressed", "false");
-    }
-
+    button.classList.toggle("active", name === selectedCategory);
+    button.setAttribute("aria-pressed", String(name === selectedCategory));
     button.addEventListener("click", function () {
-      selectCategory(name);
+      selectedCategory = name;
+      refreshView();
     });
-
-    categoryFilters.appendChild(button);
   });
 }
 
-// Choosing a category filters the list
-function selectCategory(name) {
-  selectedCategory = name;
-  refreshView();
-}
-
-// Fills the category dropdown in the edit popup
 function fillCategoryDropdown() {
   categories.forEach(function (name) {
-    const option = document.createElement("option");
+    const option = addElement(editCategory, "option", "", name);
     option.value = name;
-    option.textContent = name;
-    editCategory.appendChild(option);
   });
 }
 
-// Does this document match the search text?
-// It looks in the name, extension, category, notes and tags.
-// (It does NOT search inside the file content.)
+// looks in name, extension, category, notes and tags (not inside the file)
 function matchesSearch(doc, text) {
-  const searchIn = [
-    doc.name,
-    doc.extension,
-    doc.category,
-    doc.notes || "",
-    (doc.tags || []).join(" ")
-  ].join(" ").toLowerCase();
-
+  let tagsText = "";
+  if (doc.tags) {
+    tagsText = doc.tags.join(" ");
+  }
+  let notesText = "";
+  if (doc.notes) {
+    notesText = doc.notes;
+  }
+  const searchIn = [doc.name, doc.extension, doc.category, notesText, tagsText].join(" ").toLowerCase();
   return searchIn.includes(text);
 }
 
-// Applies view + category + search and returns the documents to display
+// applies the view, the category and the search
 function getVisibleDocuments() {
-  let list = allDocuments.slice();   // a copy, so the original list is not changed
+  const list = [];
 
-  if (currentView === "favorites") {
-    list = list.filter(function (doc) {
-      return doc.favorite;
-    });
-  }
+  allDocuments.forEach(function (doc) {
+    if (currentView === "favorites" && !doc.favorite) {
+      return;
+    }
+    if (currentView === "recent" && !doc.lastOpened) {
+      return;
+    }
+    if (selectedCategory !== "All" && doc.category !== selectedCategory) {
+      return;
+    }
+    if (searchText !== "" && !matchesSearch(doc, searchText)) {
+      return;
+    }
+    list.push(doc);
+  });
 
   if (currentView === "recent") {
-    // Only documents that were opened, most recently opened first
-    list = list.filter(function (doc) {
-      return doc.lastOpened;
-    });
     list.sort(function (a, b) {
       return b.lastOpened.localeCompare(a.lastOpened);
-    });
-  }
-
-  if (selectedCategory !== "All") {
-    list = list.filter(function (doc) {
-      return doc.category === selectedCategory;
-    });
-  }
-
-  if (searchText !== "") {
-    list = list.filter(function (doc) {
-      return matchesSearch(doc, searchText);
     });
   }
 
   return list;
 }
 
-// Rebuilds the category buttons and the document list
 function refreshView() {
   showCategoryButtons();
   showDocumentGrid(getVisibleDocuments());
 }
 
-// Search as you type, but wait 250 ms after the last key (this is called "debounce")
+// search while typing, but wait 250 ms after the last key
 searchInput.addEventListener("input", function () {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(function () {
@@ -436,57 +426,36 @@ searchInput.addEventListener("input", function () {
   }, 250);
 });
 
-// Clears the search text and the category filter
-function clearFilters() {
+clearFiltersButton.addEventListener("click", function () {
   searchInput.value = "";
   searchText = "";
   selectedCategory = "All";
   refreshView();
-}
+});
 
-clearFiltersButton.addEventListener("click", clearFilters);
-
-// Shows the right message when no document matches
 function showNoResultsMessage() {
-  noResults.classList.remove("d-none");
-
   const noFilters = searchText === "" && selectedCategory === "All";
+  let title = "No documents found";
+  let text = "Try a different word, or clear the search and filters.";
 
   if (currentView === "favorites" && noFilters) {
-    noResultsTitle.textContent = "No favorites yet";
-    noResultsText.textContent = "Click the star on a document card and it will appear here.";
+    title = "No favorites yet";
+    text = "Click the star on a document card and it will appear here.";
   } else if (currentView === "recent" && noFilters) {
-    noResultsTitle.textContent = "No documents opened yet";
-    noResultsText.textContent = "Click the eye (Preview) button on a card and it will appear here.";
-  } else {
-    noResultsTitle.textContent = "No documents found";
-    noResultsText.textContent = "Try a different word, or clear the search and filters.";
+    title = "No documents opened yet";
+    text = "Click the eye (Preview) button on a card and it will appear here.";
   }
 
-  // Show the "Clear" button only when a search or category filter is active
-  if (noFilters) {
-    clearFiltersButton.classList.add("d-none");
-  } else {
-    clearFiltersButton.classList.remove("d-none");
-  }
+  noResultsTitle.textContent = title;
+  noResultsText.textContent = text;
+  setVisible(noResults, true);
+  setVisible(clearFiltersButton, !noFilters);
 }
 
-// ====================================================
-// PART 6: INDEXEDDB
-// ====================================================
+// ---------- database ----------
 
-const DB_NAME = "DocuNestDB";     // database name
-const DB_VERSION = 1;             // version number
-const STORE_NAME = "documents";   // shelf (object store) name
-
-// The open database is kept in "db". It starts empty (null).
-let db = null;
-
-// Opens the database. If it is the first time, it also creates it.
 function openDatabase() {
   return new Promise(function (resolve, reject) {
-
-    // Check: does this browser support IndexedDB?
     if (!window.indexedDB) {
       reject(new Error("Your browser does not support IndexedDB."));
       return;
@@ -494,20 +463,27 @@ function openDatabase() {
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    // This runs only when the database is being created for the first time
-    request.onupgradeneeded = function (event) {
-      const database = event.target.result;
+    // runs the first time, and when the version number goes up
+    request.onupgradeneeded = function () {
+      const database = request.result;
+      let documentStore = null;
 
-      if (!database.objectStoreNames.contains(STORE_NAME)) {
-        // keyPath "id" = a unique number for each record, it grows automatically
-        const store = database.createObjectStore(STORE_NAME, {
-          keyPath: "id",
-          autoIncrement: true
-        });
-
-        store.createIndex("category", "category", { unique: false });
-        store.createIndex("dateAdded", "dateAdded", { unique: false });
+      if (database.objectStoreNames.contains(DOCUMENT_STORE)) {
+        documentStore = request.transaction.objectStore(DOCUMENT_STORE);
+      } else {
+        documentStore = database.createObjectStore(DOCUMENT_STORE, { keyPath: "id", autoIncrement: true });
+        documentStore.createIndex("category", "category", { unique: false });
+        documentStore.createIndex("dateAdded", "dateAdded", { unique: false });
       }
+
+      if (!database.objectStoreNames.contains(FILE_STORE)) {
+        const fileStore = database.createObjectStore(FILE_STORE);
+        moveOldFiles(documentStore, fileStore);
+      }
+    };
+
+    request.onblocked = function () {
+      reject(new Error("Please close the other DocuNest tabs and reload this page."));
     };
 
     request.onsuccess = function () {
@@ -521,104 +497,46 @@ function openDatabase() {
   });
 }
 
-// Starts a transaction. mode: "readonly" or "readwrite"
-function startTransaction(mode) {
-  if (db === null) {
-    throw new Error("The database is not ready yet.");
-  }
-  return db.transaction(STORE_NAME, mode);
+// Version 1 kept the file inside the document record.
+// This moves every file into the "files" store, so a document record only has its details.
+function moveOldFiles(documentStore, fileStore) {
+  documentStore.openCursor().onsuccess = function (event) {
+    const cursor = event.target.result;
+    if (cursor === null) {
+      return;
+    }
+
+    const record = cursor.value;
+    if (record.fileBlob) {
+      fileStore.put(record.fileBlob, record.id);
+      delete record.fileBlob;
+      cursor.update(record);
+    } else {
+      cursor.delete();   // a record without a file is not a real document
+    }
+    cursor.continue();
+  };
 }
 
-// Saves a NEW record. Returns the new id.
-function addDocument(record) {
+// Runs one database action inside a transaction.
+// We wait for "oncomplete", so success means the data is really saved.
+// If something fails (for example the storage is full), "onabort" runs and nothing is saved.
+function runDatabase(storeNames, mode, action) {
   return new Promise(function (resolve, reject) {
-    const transaction = startTransaction("readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.add(record);
+    if (db === null) {
+      reject(new Error("The database is not ready yet."));
+      return;
+    }
 
-    let newId = null;
-
-    request.onsuccess = function () {
-      newId = request.result;
-    };
-
-    // oncomplete = the data is really saved (only then we call it a success)
-    transaction.oncomplete = function () {
-      resolve(newId);
-    };
-
-    // onabort = something went wrong, nothing was saved (for example, storage is full)
-    transaction.onabort = function () {
-      reject(transaction.error || request.error);
-    };
-  });
-}
-
-// Reads all records
-function getAllDocuments() {
-  return new Promise(function (resolve, reject) {
-    const transaction = startTransaction("readonly");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.getAll();
-
-    request.onsuccess = function () {
-      resolve(request.result);
-    };
-
-    request.onerror = function () {
-      reject(request.error);
-    };
-  });
-}
-
-// Reads one record by id. Returns undefined if it does not exist.
-function getDocumentById(id) {
-  return new Promise(function (resolve, reject) {
-    const transaction = startTransaction("readonly");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(id);
-
-    request.onsuccess = function () {
-      resolve(request.result);
-    };
-
-    request.onerror = function () {
-      reject(request.error);
-    };
-  });
-}
-
-// Replaces an old record with a new one (same id).
-// put() = "update if the id exists, otherwise create"
-function updateDocument(record) {
-  return new Promise(function (resolve, reject) {
-    const transaction = startTransaction("readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.put(record);
+    const transaction = db.transaction(storeNames, mode);
+    const request = action(transaction);
 
     transaction.oncomplete = function () {
-      resolve();
-    };
-
-    transaction.onabort = function () {
-      reject(transaction.error || request.error);
-    };
-  });
-}
-
-// Updates many records in ONE transaction.
-// A transaction is all-or-nothing: either every record is saved, or none.
-function updateManyDocuments(records) {
-  return new Promise(function (resolve, reject) {
-    const transaction = startTransaction("readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-
-    records.forEach(function (record) {
-      store.put(record);
-    });
-
-    transaction.oncomplete = function () {
-      resolve();
+      if (request) {
+        resolve(request.result);
+      } else {
+        resolve();
+      }
     };
 
     transaction.onabort = function () {
@@ -627,24 +545,62 @@ function updateManyDocuments(records) {
   });
 }
 
-// Deletes one record permanently
-function deleteDocument(id) {
-  return new Promise(function (resolve, reject) {
-    const transaction = startTransaction("readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.delete(id);
-
-    transaction.oncomplete = function () {
-      resolve();
+// saves the details and the real file together. Returns the new id.
+function addDocument(record, file) {
+  return runDatabase([DOCUMENT_STORE, FILE_STORE], "readwrite", function (transaction) {
+    const request = transaction.objectStore(DOCUMENT_STORE).add(record);
+    request.onsuccess = function () {
+      transaction.objectStore(FILE_STORE).put(file, request.result);
     };
-
-    transaction.onabort = function () {
-      reject(transaction.error || request.error);
-    };
+    return request;
   });
 }
 
-// A simple message for an error
+function getAllDocuments() {
+  return runDatabase(DOCUMENT_STORE, "readonly", function (transaction) {
+    return transaction.objectStore(DOCUMENT_STORE).getAll();
+  });
+}
+
+// returns undefined if the document does not exist
+function getDocumentById(id) {
+  return runDatabase(DOCUMENT_STORE, "readonly", function (transaction) {
+    return transaction.objectStore(DOCUMENT_STORE).get(id);
+  });
+}
+
+// returns the real file of a document
+function getFile(id) {
+  return runDatabase(FILE_STORE, "readonly", function (transaction) {
+    return transaction.objectStore(FILE_STORE).get(id);
+  });
+}
+
+// put() replaces the details that have the same id (the file is not touched)
+function updateDocument(record) {
+  return runDatabase(DOCUMENT_STORE, "readwrite", function (transaction) {
+    return transaction.objectStore(DOCUMENT_STORE).put(record);
+  });
+}
+
+// updates many documents in one transaction (all or nothing)
+function updateManyDocuments(records) {
+  return runDatabase(DOCUMENT_STORE, "readwrite", function (transaction) {
+    const store = transaction.objectStore(DOCUMENT_STORE);
+    records.forEach(function (record) {
+      store.put(record);
+    });
+  });
+}
+
+// deletes the details and the real file
+function deleteDocument(id) {
+  return runDatabase([DOCUMENT_STORE, FILE_STORE], "readwrite", function (transaction) {
+    transaction.objectStore(FILE_STORE).delete(id);
+    return transaction.objectStore(DOCUMENT_STORE).delete(id);
+  });
+}
+
 function getErrorText(error) {
   if (error && error.name === "QuotaExceededError") {
     return "The browser storage is full. Delete some old documents and try again.";
@@ -655,115 +611,95 @@ function getErrorText(error) {
   return "Something went wrong.";
 }
 
-// ====================================================
-// PART 7: SHOWING DOCUMENTS
-// ====================================================
+// reads one document. If it is missing, tells the user and returns null.
+async function getExistingRecord(id) {
+  const record = await getDocumentById(id);
+  if (!record) {
+    showMessage("This document was not found. It may have been deleted.", "danger");
+    await showDocuments();
+    return null;
+  }
+  return record;
+}
 
-// Creates a small icon button for a card (eye, star, pencil, trash)
-function makeIconButton(iconClass, label, extraClass, onClick) {
-  const button = makeElement("button", "icon-button " + extraClass);
+// ---------- showing documents ----------
+
+function addIconButton(parent, iconClass, label, extraClass, onClick) {
+  const button = addElement(parent, "button", "icon-button " + extraClass);
   button.type = "button";
-  button.title = label;                      // shown when the mouse is over it
-  button.setAttribute("aria-label", label);  // for screen readers
-  button.appendChild(makeElement("i", "bi " + iconClass));
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  addElement(button, "i", "bi " + iconClass);
   button.addEventListener("click", onClick);
   return button;
 }
 
-// Creates the card for one document
 function createDocumentCard(doc) {
   const column = makeElement("div", "col-12 col-md-6 col-xl-4");
-  const card = makeElement("div", "doc-card");
+  const card = addElement(column, "div", "doc-card");
 
-  // Left: the file icon
-  const iconBox = makeElement("div", "doc-icon");
-  iconBox.appendChild(makeElement("i", "bi " + getIconClass(doc.extension)));
+  const iconBox = addElement(card, "div", "doc-icon");
+  addElement(iconBox, "i", "bi " + getIconClass(doc.extension));
 
-  // Right: name, type + size, category + date, tags, notes, buttons
-  const info = makeElement("div", "doc-info");
+  const info = addElement(card, "div", "doc-info");
+  const nameLine = addElement(info, "div", "doc-name", doc.name);
+  nameLine.title = doc.name;
+  addElement(info, "div", "doc-meta", doc.extension.toUpperCase() + " | " + formatSize(doc.size));
 
-  const nameLine = makeElement("div", "doc-name", doc.name);
-  nameLine.title = doc.name;   // the full name shows when the mouse is over it
-
-  const sizeLine = makeElement(
-    "div",
-    "doc-meta",
-    doc.extension.toUpperCase() + " | " + formatSize(doc.size)
-  );
-
-  const categoryLine = makeElement("div", "doc-meta");
-  categoryLine.appendChild(makeElement("span", "category-badge", doc.category));
+  const categoryLine = addElement(info, "div", "doc-meta");
+  addElement(categoryLine, "span", "category-badge", doc.category);
   categoryLine.append(" " + formatDate(doc.dateAdded));
 
-  info.appendChild(nameLine);
-  info.appendChild(sizeLine);
-  info.appendChild(categoryLine);
-
-  // Tags (show the first 3, then "+2" and so on)
+  // the first 3 tags, then "+2" and so on
   if (doc.tags && doc.tags.length > 0) {
-    const tagLine = makeElement("div", "doc-tags");
+    const tagLine = addElement(info, "div", "doc-tags");
     doc.tags.slice(0, 3).forEach(function (tag) {
-      tagLine.appendChild(makeElement("span", "tag-badge", tag));
+      addElement(tagLine, "span", "tag-badge", tag);
     });
     if (doc.tags.length > 3) {
-      tagLine.appendChild(makeElement("span", "tag-badge", "+" + (doc.tags.length - 3)));
+      addElement(tagLine, "span", "tag-badge", "+" + (doc.tags.length - 3));
     }
-    info.appendChild(tagLine);
   }
 
-  // A one-line preview of the notes
   if (doc.notes) {
-    const notesLine = makeElement("div", "doc-notes", doc.notes);
+    const notesLine = addElement(info, "div", "doc-notes", doc.notes);
     notesLine.title = doc.notes;
-    info.appendChild(notesLine);
   }
 
-  // Action buttons: preview, favorite, edit, delete
-  const actions = makeElement("div", "doc-actions");
+  const actions = addElement(info, "div", "doc-actions");
 
-  const previewButton = makeIconButton("bi-eye", "Preview", "", function () {
+  addIconButton(actions, "bi-eye", "Preview", "", function () {
     openPreview(doc.id);
   });
 
-  const starClass = doc.favorite ? "bi-star-fill" : "bi-star";
-  const starLabel = doc.favorite ? "Remove from favorites" : "Add to favorites";
-  const favoriteButton = makeIconButton(
-    starClass,
-    starLabel,
-    doc.favorite ? "favorite-on" : "",
-    function () {
-      toggleFavorite(doc.id);
-    }
-  );
-  favoriteButton.setAttribute("aria-pressed", doc.favorite ? "true" : "false");
+  let starClass = "bi-star";
+  let starLabel = "Add to favorites";
+  let starExtra = "";
+  if (doc.favorite) {
+    starClass = "bi-star-fill";
+    starLabel = "Remove from favorites";
+    starExtra = "favorite-on";
+  }
+  const favoriteButton = addIconButton(actions, starClass, starLabel, starExtra, function () {
+    toggleFavorite(doc.id);
+  });
+  favoriteButton.setAttribute("aria-pressed", String(doc.favorite === true));
 
-  const editButton = makeIconButton("bi-pencil", "Edit details", "", function () {
+  addIconButton(actions, "bi-pencil", "Edit details", "", function () {
     openEditModal(doc.id);
   });
 
-  const deleteButton = makeIconButton("bi-trash", "Delete", "danger", function () {
+  addIconButton(actions, "bi-trash", "Delete", "danger", function () {
     deleteWithConfirm(doc.id, doc.name);
   });
 
-  actions.appendChild(previewButton);
-  actions.appendChild(favoriteButton);
-  actions.appendChild(editButton);
-  actions.appendChild(deleteButton);
-  info.appendChild(actions);
-
-  card.appendChild(iconBox);
-  card.appendChild(info);
-  column.appendChild(card);
   return column;
 }
 
-// Updates the stat cards from REAL data
 function updateStats(documents) {
   const totalBytes = getTotalSize(documents);
-
+  const usedCategories = new Set();   // a Set keeps each category only once
   let favoriteTotal = 0;
-  // A Set keeps only unique values, so it counts each category once
-  const usedCategories = new Set();
 
   documents.forEach(function (doc) {
     if (doc.favorite) {
@@ -776,15 +712,11 @@ function updateStats(documents) {
   favoritesCount.textContent = favoriteTotal;
   categoryCount.textContent = usedCategories.size;
 
-  // Storage card: how much is used, and what percent of the limit
   const percentUsed = Math.round((totalBytes / MAX_TOTAL_STORAGE) * 100);
   storageUsed.textContent = formatSize(totalBytes);
+  // the element next to the number is its label
+  storageUsed.nextElementSibling.textContent = "of " + STORAGE_LIMIT_TEXT + " used (" + percentUsed + "%)";
 
-  // The element next to storageUsed is the label below the number
-  storageUsed.nextElementSibling.textContent =
-    "of " + STORAGE_LIMIT_TEXT + " used (" + percentUsed + "%)";
-
-  // If 90% or more is used, show the number in red
   if (percentUsed >= 90) {
     storageUsed.style.color = "#dc3545";
   } else {
@@ -792,169 +724,128 @@ function updateStats(documents) {
   }
 }
 
-// NEW: "Storage by File Type" section.
-// For each file type it shows: number of files, storage used, and the share of total storage.
+// "Storage by File Type": count, size and share of the total for every type in FILE_TYPES
 function showTypeBreakdown(documents) {
   typeBreakdown.innerHTML = "";
 
-  // No documents: show a short help message
   if (documents.length === 0) {
-    typeBreakdown.appendChild(
-      makeElement(
-        "p",
-        "text-muted mb-0",
-        "Import some documents to see how many files of each type you have and how much storage they use."
-      )
+    addElement(
+      typeBreakdown, "p", "text-muted mb-0",
+      "Import some documents to see how many files of each type you have and how much storage they use."
     );
     return;
   }
 
   const totalBytes = getTotalSize(documents);
 
-  FILE_TYPE_GROUPS.forEach(function (group) {
-
-    // Only the documents of this type
+  FILE_TYPES.forEach(function (type) {
     const files = documents.filter(function (doc) {
-      return group.extensions.includes(doc.extension);
+      return type.extensions.includes(doc.extension);
     });
+    const typeBytes = getTotalSize(files);
+    let percent = 0;
+    if (totalBytes > 0) {
+      percent = Math.round((typeBytes / totalBytes) * 100);
+    }
 
-    const groupBytes = getTotalSize(files);
-    const percent = totalBytes > 0 ? Math.round((groupBytes / totalBytes) * 100) : 0;
+    const row = addElement(typeBreakdown, "div", "mb-3");
 
-    const row = makeElement("div", "mb-3");
-
-    // Top line: icon + label on the left, numbers on the right
-    const topLine = makeElement("div", "d-flex justify-content-between flex-wrap gap-1 mb-1");
-
-    const labelPart = makeElement("span", "fw-semibold");
-    const icon = makeElement("i", "bi " + group.icon + " me-2");
+    const topLine = addElement(row, "div", "d-flex justify-content-between flex-wrap gap-1 mb-1");
+    const labelPart = addElement(topLine, "span", "fw-semibold");
+    const icon = addElement(labelPart, "i", "bi " + type.icon + " me-2");
     icon.style.color = "var(--primary-color)";
-    labelPart.appendChild(icon);
-    labelPart.append(group.label);
-
-    const numbersPart = makeElement(
-      "span",
-      "small text-muted",
-      formatFileCount(files.length) + " | " + formatSize(groupBytes) + " (" + percent + "%)"
+    labelPart.append(type.label);
+    addElement(
+      topLine, "span", "small text-muted",
+      formatFileCount(files.length) + " | " + formatSize(typeBytes) + " (" + percent + "%)"
     );
 
-    topLine.appendChild(labelPart);
-    topLine.appendChild(numbersPart);
-
-    // Progress bar: how big is this type's share of the used storage
-    const progress = makeElement("div", "progress");
+    const progress = addElement(row, "div", "progress");
     progress.style.height = "8px";
     progress.setAttribute("role", "progressbar");
-    progress.setAttribute("aria-label", group.label + " share of used storage");
+    progress.setAttribute("aria-label", type.label + " share of used storage");
     progress.setAttribute("aria-valuenow", percent);
     progress.setAttribute("aria-valuemin", "0");
     progress.setAttribute("aria-valuemax", "100");
-
-    const bar = makeElement("div", "progress-bar");
+    const bar = addElement(progress, "div", "progress-bar");
     bar.style.width = percent + "%";
     bar.style.backgroundColor = "var(--primary-color)";
-    progress.appendChild(bar);
-
-    row.appendChild(topLine);
-    row.appendChild(progress);
-    typeBreakdown.appendChild(row);
   });
 
-  // Last line: the total
-  const totalLine = makeElement("div", "d-flex justify-content-between flex-wrap gap-1 border-top pt-2");
-  totalLine.appendChild(makeElement("span", "fw-semibold", "Total"));
-  totalLine.appendChild(
-    makeElement(
-      "span",
-      "small text-muted",
-      formatFileCount(documents.length) + " | " + formatSize(totalBytes) + " of " + STORAGE_LIMIT_TEXT
-    )
+  const totalLine = addElement(typeBreakdown, "div", "d-flex justify-content-between flex-wrap gap-1 border-top pt-2");
+  addElement(totalLine, "span", "fw-semibold", "Total");
+  addElement(
+    totalLine, "span", "small text-muted",
+    formatFileCount(documents.length) + " | " + formatSize(totalBytes) + " of " + STORAGE_LIMIT_TEXT
   );
-  typeBreakdown.appendChild(totalLine);
 }
 
-// "Recently Added": the 3 newest documents
+// the 3 newest documents
 function showRecentList(documents) {
   recentList.innerHTML = "";
 
   if (documents.length === 0) {
-    recentList.appendChild(
-      makeElement("p", "text-muted mb-0", "No documents have been added yet.")
-    );
+    addElement(recentList, "p", "text-muted mb-0", "No documents have been added yet.");
     return;
   }
 
   documents.slice(0, 3).forEach(function (doc) {
-    const row = makeElement("div", "recent-item");
-    row.appendChild(makeElement("i", "bi " + getIconClass(doc.extension)));
-    row.appendChild(makeElement("span", "recent-name", doc.name));
-    row.appendChild(makeElement("span", "recent-date", formatDate(doc.dateAdded)));
-    recentList.appendChild(row);
+    const row = addElement(recentList, "div", "recent-item");
+    addElement(row, "i", "bi " + getIconClass(doc.extension));
+    addElement(row, "span", "recent-name", doc.name);
+    addElement(row, "span", "recent-date", formatDate(doc.dateAdded));
   });
 }
 
-// Shows the grid of document cards.
-// 3 situations: (1) no documents at all, (2) documents exist but none match, (3) results
+// three cases: no documents at all, documents exist but none match, or results to show
 function showDocumentGrid(visibleDocuments) {
   documentGrid.innerHTML = "";
-  noResults.classList.add("d-none");
+  setVisible(noResults, false);
 
-  // (1) There are no documents in the database
   if (allDocuments.length === 0) {
-    emptyState.classList.remove("d-none");
-    documentGrid.classList.add("d-none");
+    setVisible(emptyState, true);
+    setVisible(documentGrid, false);
     resultInfo.textContent = "";
     return;
   }
 
-  emptyState.classList.add("d-none");
-  resultInfo.textContent =
-    "Showing " + visibleDocuments.length + " of " + allDocuments.length + " document(s)";
+  setVisible(emptyState, false);
+  resultInfo.textContent = "Showing " + visibleDocuments.length + " of " + allDocuments.length + " document(s)";
 
-  // (2) Documents exist, but the search or filter matches none
   if (visibleDocuments.length === 0) {
-    documentGrid.classList.add("d-none");
+    setVisible(documentGrid, false);
     showNoResultsMessage();
     return;
   }
 
-  // (3) Show the results
-  documentGrid.classList.remove("d-none");
+  setVisible(documentGrid, true);
   visibleDocuments.forEach(function (doc) {
     documentGrid.appendChild(createDocumentCard(doc));
   });
 }
 
-// Reads documents from the database and refreshes the whole dashboard
+// reads the database and refreshes the whole dashboard
 async function showDocuments() {
   try {
-    const allRecords = await getAllDocuments();
+    allDocuments = await getAllDocuments();
 
-    // Keep only records that have the real file (fileBlob)
-    allDocuments = allRecords.filter(function (doc) {
-      return doc.fileBlob;
-    });
-
-    // Newest document first (ISO date text sorts correctly as text)
+    // newest first
     allDocuments.sort(function (a, b) {
       return b.dateAdded.localeCompare(a.dateAdded);
     });
 
     updateStats(allDocuments);
-    showTypeBreakdown(allDocuments);   // NEW
+    showTypeBreakdown(allDocuments);
     showRecentList(allDocuments);
-    refreshView();   // apply filters and show the list
+    refreshView();
   } catch (error) {
     showMessage("Could not load documents: " + getErrorText(error), "danger");
   }
 }
 
-// ====================================================
-// PART 8: FILE IMPORT
-// ====================================================
+// ---------- import ----------
 
-// Checks one file.
-// If there is a problem, it returns the message. If all is fine, it returns "" (empty).
+// returns a message if there is a problem, or "" if the file is fine
 function checkFile(file, existingDocuments) {
   const extension = getExtension(file.name);
 
@@ -963,14 +854,17 @@ function checkFile(file, existingDocuments) {
   }
 
   if (!ALLOWED_EXTENSIONS.includes(extension)) {
-    return "This file type is not supported. Only PDF, PNG, JPG, JPEG and TXT are allowed.";
+    const typeList = ALLOWED_EXTENSIONS.map(function (allowed) {
+      return allowed.toUpperCase();
+    }).join(", ");
+    return "This file type is not supported. Allowed types: " + typeList + ".";
   }
 
   if (file.size > MAX_FILE_SIZE) {
-    return "The file is too large (" + formatSize(file.size) + "). The limit is 20 MB per file.";
+    return "The file is too large (" + formatSize(file.size) + "). The limit is " + FILE_LIMIT_TEXT + " per file.";
   }
 
-  // Same name + same size = probably already imported
+  // same name and same size: probably already imported
   const isDuplicate = existingDocuments.some(function (doc) {
     return doc.originalName === file.name && doc.size === file.size;
   });
@@ -978,7 +872,6 @@ function checkFile(file, existingDocuments) {
     return "This file has already been imported.";
   }
 
-  // Total storage limit check
   const usedBytes = getTotalSize(existingDocuments);
   if (usedBytes + file.size > MAX_TOTAL_STORAGE) {
     const freeBytes = Math.max(0, MAX_TOTAL_STORAGE - usedBytes);
@@ -989,11 +882,11 @@ function checkFile(file, existingDocuments) {
   return "";
 }
 
-// Builds a record from a file (this goes into IndexedDB)
+// the details of a document (the real file is saved separately)
 function makeRecord(file) {
   return {
-    name: file.name,                       // display name (changes when renamed)
-    originalName: file.name,               // the original name never changes
+    name: file.name,            // display name, changes when renamed
+    originalName: file.name,    // never changes
     type: file.type || "unknown",
     extension: getExtension(file.name),
     size: file.size,
@@ -1002,28 +895,18 @@ function makeRecord(file) {
     dateAdded: new Date().toISOString(),
     lastOpened: null,
     favorite: false,
-    notes: "",
-    fileBlob: file                         // THE REAL FILE (a File is a kind of Blob)
+    notes: ""
   };
 }
 
-// Shows or hides the loading box and disables the import buttons while importing
 function setImporting(isOn) {
-  if (isOn) {
-    importStatus.classList.remove("d-none");
-  } else {
-    importStatus.classList.add("d-none");
-  }
-
+  setVisible(importStatus, isOn);
   importButtons.forEach(function (button) {
     button.disabled = isOn;
   });
 }
 
-// Imports the selected files one by one
 async function importFiles(files) {
-
-  // Nothing selected
   if (files.length === 0) {
     showMessage("No file was selected.", "warning");
     return;
@@ -1033,31 +916,28 @@ async function importFiles(files) {
   let savedCount = 0;
 
   try {
-    // Documents already saved (used for the duplicate and storage checks)
     const existingDocuments = await getAllDocuments();
 
-    for (let i = 0; i < files.length; i++) {
+    for (let i = 0; i < files.length; i = i + 1) {
       const file = files[i];
-      importStatusText.textContent =
-        "Importing: " + (i + 1) + " / " + files.length;
+      importStatusText.textContent = "Importing " + (i + 1) + " of " + files.length + ": " + file.name;
 
-      // Check the file. If there is a problem, tell the user (never skip silently)
+      // a problem is always shown, files are never skipped silently
       const problem = checkFile(file, existingDocuments);
       if (problem !== "") {
         showMessage(file.name + ": " + problem, "warning");
         continue;
       }
 
-      // Save the file
       try {
         const record = makeRecord(file);
-        record.id = await addDocument(record);
-        existingDocuments.push(record);   // so duplicates and storage are counted within the same batch
+        record.id = await addDocument(record, file);
+        existingDocuments.push(record);   // so duplicates and storage are counted inside the same batch
         savedCount = savedCount + 1;
       } catch (error) {
         showMessage(file.name + " could not be saved: " + getErrorText(error), "danger");
 
-        // If the browser storage is full, the remaining files would fail too, so stop
+        // if the browser storage is full, the next files would fail too
         if (error && error.name === "QuotaExceededError") {
           showMessage("Storage is full. The remaining files were not imported.", "danger");
           break;
@@ -1070,7 +950,6 @@ async function importFiles(files) {
 
   setImporting(false);
 
-  // Show the success message only if something was really saved
   if (savedCount > 0) {
     showMessage(savedCount + " document(s) saved.", "success");
   }
@@ -1078,42 +957,27 @@ async function importFiles(files) {
   await showDocuments();
 }
 
-// Clicking an Import button opens the file chooser
 importButtons.forEach(function (button) {
   button.addEventListener("click", function () {
     fileInput.click();
   });
 });
 
-// When files are chosen, start the import
 fileInput.addEventListener("change", function () {
   const selectedFiles = Array.from(fileInput.files);
-  fileInput.value = "";   // reset, so the same file can be chosen again
+  fileInput.value = "";   // so the same file can be chosen again
   importFiles(selectedFiles);
 });
 
-// ====================================================
-// PART 9: ORGANIZATION (favorite, delete, edit)
-// ====================================================
+// ---------- favorite, delete, edit ----------
 
-// Used when a document is not found in the database (for example, deleted in another tab)
-async function showMissingDocument() {
-  showMessage("This document was not found. It may have been deleted.", "danger");
-  await showDocuments();
-}
-
-// ---------- Favorite ----------
-
-// Turns favorite on or off and saves it in the database
 async function toggleFavorite(id) {
   try {
-    const record = await getDocumentById(id);
-    if (!record) {
-      await showMissingDocument();
+    const record = await getExistingRecord(id);
+    if (record === null) {
       return;
     }
-
-    record.favorite = !record.favorite;   // true <-> false
+    record.favorite = !record.favorite;
     await updateDocument(record);
     await showDocuments();
   } catch (error) {
@@ -1121,14 +985,8 @@ async function toggleFavorite(id) {
   }
 }
 
-// ---------- Delete ----------
-
-// Asks for confirmation first, then deletes permanently
 async function deleteWithConfirm(id, name) {
-  const sure = confirm(
-    'Delete "' + name + '" permanently? This cannot be undone.'
-  );
-  if (!sure) {
+  if (!confirm('Delete "' + name + '" permanently? This cannot be undone.')) {
     return;
   }
 
@@ -1141,28 +999,21 @@ async function deleteWithConfirm(id, name) {
   }
 }
 
-// ---------- Edit popup ----------
-
-// Shows an error message inside the popup
 function showEditError(text) {
   editError.textContent = text;
-  editError.classList.remove("d-none");
+  setVisible(editError, true);
 }
 
-// "a, b , a" -> ["a", "b"]  (removes spaces, empty tags and duplicates)
+// "a, b , A" gives ["a", "b"] (no spaces, no empty tags, no duplicates)
 function parseTags(text) {
   const tags = [];
 
   text.split(",").forEach(function (part) {
     const tag = part.trim();
-    if (tag === "") {
-      return;   // skip empty tags
-    }
-
     const alreadyThere = tags.some(function (oldTag) {
       return oldTag.toLowerCase() === tag.toLowerCase();
     });
-    if (!alreadyThere) {
+    if (tag !== "" && !alreadyThere) {
       tags.push(tag);
     }
   });
@@ -1170,28 +1021,33 @@ function parseTags(text) {
   return tags;
 }
 
-// Opens the popup and fills in the document's current details
 async function openEditModal(id) {
   try {
-    const record = await getDocumentById(id);
-    if (!record) {
-      await showMissingDocument();
+    const record = await getExistingRecord(id);
+    if (record === null) {
       return;
     }
 
     editingId = id;
-    editError.classList.add("d-none");
+    setVisible(editError, false);
     editSaveButton.disabled = false;
 
     editName.value = record.name;
-    editTags.value = (record.tags || []).join(", ");
-    editNotes.value = record.notes || "";
 
-    // If the category is not in our list (damaged record), use "Other"
+    let tags = [];
+    if (record.tags) {
+      tags = record.tags;
+    }
+    editTags.value = tags.join(", ");
+
+    editNotes.value = "";
+    if (record.notes) {
+      editNotes.value = record.notes;
+    }
+
+    editCategory.value = "Other";
     if (categories.includes(record.category)) {
       editCategory.value = record.category;
-    } else {
-      editCategory.value = "Other";
     }
 
     editModal.show();
@@ -1200,70 +1056,65 @@ async function openEditModal(id) {
   }
 }
 
-// "Save changes": check the input, then save to the database
-async function saveEdit() {
+// returns a message if the input is not valid, or "" if it is fine
+function findEditProblem(name, tags) {
+  if (name === "") {
+    return "The document name cannot be empty.";
+  }
+  if (tags.length > MAX_TAGS) {
+    return "You can add at most " + MAX_TAGS + " tags. You entered " + tags.length + ".";
+  }
+  const longTag = tags.find(function (tag) {
+    return tag.length > MAX_TAG_LENGTH;
+  });
+  if (longTag) {
+    return "This tag is too long: \"" + longTag + "\". The limit is " + MAX_TAG_LENGTH + " characters.";
+  }
+  return "";
+}
 
-  // Ignore the click or Enter key while a save is already running
+async function saveEdit() {
   if (editSaveButton.disabled) {
-    return;
+    return;   // a save is already running
   }
 
   const newName = editName.value.trim();
   const newTags = parseTags(editTags.value);
-
-  // --- Checks ---
-  if (newName === "") {
-    showEditError("The document name cannot be empty.");
+  const problem = findEditProblem(newName, newTags);
+  if (problem !== "") {
+    showEditError(problem);
     return;
   }
 
-  if (newTags.length > MAX_TAGS) {
-    showEditError("You can add at most " + MAX_TAGS + " tags. You entered " + newTags.length + ".");
-    return;
-  }
-
-  const tooLongTag = newTags.find(function (tag) {
-    return tag.length > MAX_TAG_LENGTH;
-  });
-  if (tooLongTag) {
-    showEditError("This tag is too long: \"" + tooLongTag + "\". The limit is " + MAX_TAG_LENGTH + " characters.");
-    return;
-  }
-
-  // --- Save ---
-  editSaveButton.disabled = true;   // prevents double saving
+  editSaveButton.disabled = true;
 
   try {
-    const record = await getDocumentById(editingId);
-    if (!record) {
+    const record = await getExistingRecord(editingId);
+    if (record === null) {
       editModal.hide();
-      await showMissingDocument();
       return;
     }
 
-    // Only these 4 things change. fileBlob and originalName stay the same.
+    // only these four things change. originalName and the file stay the same.
     record.name = newName;
     record.category = editCategory.value;
     record.tags = newTags;
     record.notes = editNotes.value.trim();
 
     await updateDocument(record);
-
     editModal.hide();
     showMessage("Changes saved.", "success");
     await showDocuments();
   } catch (error) {
     showEditError("Could not save: " + getErrorText(error));
   } finally {
-    // "finally" always runs, even after an early return,
-    // so the Save button can never stay disabled by mistake.
-    editSaveButton.disabled = false;
+    editSaveButton.disabled = false;   // finally always runs, so Save never stays disabled
   }
 }
 
 editSaveButton.addEventListener("click", saveEdit);
 
-// Pressing Enter in the name or tags box also saves
+// Enter in the name or tags box also saves
 [editName, editTags].forEach(function (input) {
   input.addEventListener("keydown", function (event) {
     if (event.key === "Enter") {
@@ -1272,115 +1123,313 @@ editSaveButton.addEventListener("click", saveEdit);
   });
 });
 
-// When the popup opens, put the cursor in the name box (helps keyboard users)
 editModalElement.addEventListener("shown.bs.modal", function () {
   editName.focus();
 });
 
-// ====================================================
-// PART 10: PREVIEW
-// ====================================================
+// ---------- preview ----------
 
-// Shows a simple message in the preview area
+// shows a message in the preview area and returns it, so it can be removed later
 function showPreviewMessage(text) {
-  previewArea.appendChild(makeElement("p", "preview-message mb-0", text));
+  return addElement(previewArea, "p", "preview-message mb-0", text);
 }
 
-// Adds one row to the file information list
+function addCutNote() {
+  addElement(
+    previewArea, "p", "small text-muted mt-2 mb-0",
+    "Only the first " + MAX_TEXT_PREVIEW + " characters are shown. Download the file to read all of it."
+  );
+}
+
 function addInfoRow(label, value) {
-  previewInfo.appendChild(makeElement("dt", "info-label", label));
-  previewInfo.appendChild(makeElement("dd", "info-value", value));
+  addElement(previewInfo, "dt", "info-label", label);
+  addElement(previewInfo, "dd", "info-value", value);
 }
 
-// Fills the file information on the right side of the popup
 function fillPreviewInfo(record) {
   previewInfo.innerHTML = "";
+
+  let lastOpened = "Not opened before";
+  if (record.lastOpened) {
+    lastOpened = formatDate(record.lastOpened, true);
+  }
+  let tagsText = "-";
+  if (record.tags && record.tags.length > 0) {
+    tagsText = record.tags.join(", ");
+  }
+  let notesText = "-";
+  if (record.notes) {
+    notesText = record.notes;
+  }
 
   addInfoRow("Name", record.name);
   addInfoRow("Original file name", record.originalName);
   addInfoRow("Type", record.extension.toUpperCase() + " (" + record.type + ")");
   addInfoRow("Size", formatSize(record.size));
   addInfoRow("Category", record.category);
-  addInfoRow("Added on", formatDateTime(record.dateAdded));
-
-  if (record.lastOpened) {
-    addInfoRow("Last opened", formatDateTime(record.lastOpened));
-  } else {
-    addInfoRow("Last opened", "Not opened before");
-  }
-
-  const tagsText = (record.tags && record.tags.length > 0) ? record.tags.join(", ") : "-";
+  addInfoRow("Added on", formatDate(record.dateAdded, true));
+  addInfoRow("Last opened", lastOpened);
   addInfoRow("Tags", tagsText);
-  addInfoRow("Notes", record.notes ? record.notes : "-");
+  addInfoRow("Notes", notesText);
 }
 
-// ---------- Image preview ----------
+function showImagePreview(record, file) {
+  currentObjectUrl = URL.createObjectURL(file);   // revoked when the popup closes
 
-function showImagePreview(record) {
-  // A Blob gets a temporary URL. We revoke it when the popup closes.
-  currentObjectUrl = URL.createObjectURL(record.fileBlob);
-
-  const image = makeElement("img", "preview-image");
+  const image = addElement(previewArea, "img", "preview-image");
   image.alt = record.name;
-
-  // If the image is damaged, show a clear message instead of a broken icon
   image.addEventListener("error", function () {
     previewArea.innerHTML = "";
     showPreviewMessage("This image could not be opened. The file may be damaged. You can still download it below.");
   });
-
   image.src = currentObjectUrl;
-  previewArea.appendChild(image);
 }
 
-// ---------- TXT preview ----------
+async function showTextPreview(file, token) {
+  const text = await file.text();
+  if (token !== previewToken) {
+    return;   // the popup was closed or changed in the meantime
+  }
 
-async function showTextPreview(blob, token) {
-  const text = await blob.text();
+  addElement(previewArea, "pre", "preview-text", text.slice(0, MAX_TEXT_PREVIEW));
+  if (text.length > MAX_TEXT_PREVIEW) {
+    addCutNote();
+  }
+}
 
-  // If the popup was closed or changed in the meantime, do nothing
+// loads a library script from a CDN (only once)
+function loadScript(url) {
+  if (!scriptPromises.has(url)) {
+    scriptPromises.set(url, new Promise(function (resolve, reject) {
+      const script = document.createElement("script");
+      script.src = url;
+      script.onload = resolve;
+      script.onerror = function () {
+        scriptPromises.delete(url);   // allow another try later
+        reject(new Error("A helper library could not be loaded. Check your internet connection."));
+      };
+      document.head.appendChild(script);
+    }));
+  }
+  return scriptPromises.get(url);
+}
+
+// Makes html from a Markdown or Word file safe, and returns it inside a box.
+// We do not trust these files, so the html is cleaned first.
+function createSafeHtmlBox(html) {
+  // DOMPurify removes scripts, event handlers, javascript: links, styles and forms
+  const cleanHtml = DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ["style", "form", "input", "button", "textarea", "select"],
+    FORBID_ATTR: ["style"]
+  });
+
+  // read it in a document that is not shown, so nothing loads or runs yet
+  const parsed = new DOMParser().parseFromString(cleanHtml, "text/html");
+
+  // only images saved inside the file (data:) are allowed.
+  // An image from the internet would send a request to someone else's server.
+  parsed.querySelectorAll("img").forEach(function (image) {
+    const source = image.getAttribute("src");
+    if (source && source.startsWith("data:image/")) {
+      image.style.maxWidth = "100%";
+      image.style.height = "auto";
+    } else {
+      image.replaceWith(document.createTextNode("[External image not loaded]"));
+    }
+  });
+
+  // links open in a new tab and cannot control this page
+  parsed.querySelectorAll("a").forEach(function (link) {
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  });
+
+  parsed.querySelectorAll("table").forEach(function (table) {
+    table.className = "table table-bordered table-sm";
+  });
+
+  const box = makeElement("div", "text-start w-100");
+  box.style.overflowWrap = "anywhere";
+  while (parsed.body.firstChild) {
+    box.appendChild(parsed.body.firstChild);
+  }
+  return box;
+}
+
+async function showDocxPreview(file, token) {
+  const loading = showPreviewMessage("Loading Word preview...");
+
+  await loadScript(LIBRARY_URLS.mammoth);
+  await loadScript(LIBRARY_URLS.dompurify);
+
+  const data = await file.arrayBuffer();
+  const result = await mammoth.convertToHtml({ arrayBuffer: data });
   if (token !== previewToken) {
     return;
   }
 
-  // textContent inside <pre>: the text is never treated as HTML (safe)
-  const box = makeElement("pre", "preview-text");
-  box.textContent = text.length > MAX_TEXT_PREVIEW ? text.slice(0, MAX_TEXT_PREVIEW) : text;
-  previewArea.appendChild(box);
+  loading.remove();
 
-  if (text.length > MAX_TEXT_PREVIEW) {
-    previewArea.appendChild(
-      makeElement(
-        "p",
-        "small text-muted mt-2 mb-0",
-        "Only the first " + MAX_TEXT_PREVIEW + " characters are shown. Download the file to read all of it."
-      )
+  if (result.value.trim() === "") {
+    showPreviewMessage("This Word document has no readable text. You can still download it.");
+    return;
+  }
+
+  previewArea.appendChild(createSafeHtmlBox(result.value));
+  addElement(
+    previewArea, "p", "small text-muted mt-3 mb-0",
+    "This is a simplified preview. Headers, footers, text boxes and the exact page layout are not shown. Download the file for the full document."
+  );
+}
+
+async function showMarkdownPreview(file, token) {
+  const text = await file.text();
+  if (token !== previewToken) {
+    return;
+  }
+
+  const loading = showPreviewMessage("Loading Markdown preview...");
+
+  // if the libraries cannot be loaded (for example, no internet), show the plain text instead
+  try {
+    await loadScript(LIBRARY_URLS.marked);
+    await loadScript(LIBRARY_URLS.dompurify);
+  } catch (error) {
+    loading.remove();
+    addElement(
+      previewArea, "p", "small text-muted mb-2",
+      "The formatting libraries could not be loaded (check your internet connection). Showing the plain text instead."
     );
+    await showTextPreview(file, token);
+    return;
+  }
+
+  if (token !== previewToken) {
+    return;
+  }
+
+  loading.remove();
+  previewArea.appendChild(createSafeHtmlBox(marked.parse(text.slice(0, MAX_TEXT_PREVIEW))));
+  if (text.length > MAX_TEXT_PREVIEW) {
+    addCutNote();
   }
 }
 
-// ---------- PDF preview ----------
+// builds a table for one sheet. Cells use textContent, so they are never read as html.
+function buildSheetTable(workbook, sheetName) {
+  const wrapper = makeElement("div", "w-100");
+  const sheet = workbook.Sheets[sheetName];
 
-// Updates the PDF toolbar (Previous / Page X of Y / Next)
+  if (!sheet) {
+    addElement(wrapper, "p", "text-muted mb-0", "This sheet cannot be shown.");
+    return wrapper;
+  }
+
+  // header: 1 gives every row as a simple list. raw: false gives the text as Excel shows it.
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
+  if (rows.length === 0) {
+    addElement(wrapper, "p", "text-muted mb-0", "This sheet is empty.");
+    return wrapper;
+  }
+
+  const visibleRows = rows.slice(0, MAX_SHEET_ROWS);
+  let widestRow = 0;
+  visibleRows.forEach(function (row) {
+    if (row.length > widestRow) {
+      widestRow = row.length;
+    }
+  });
+  const columnCount = Math.min(widestRow, MAX_SHEET_COLUMNS);
+
+  const scroller = addElement(wrapper, "div", "w-100");
+  scroller.style.overflow = "auto";
+  const table = addElement(scroller, "table", "table table-bordered table-sm mb-0");
+  table.style.fontSize = "0.85rem";
+  const body = addElement(table, "tbody", "");
+
+  visibleRows.forEach(function (row) {
+    const tableRow = addElement(body, "tr", "");
+    for (let column = 0; column < columnCount; column = column + 1) {
+      let cellText = "";
+      if (row[column] !== undefined) {
+        cellText = String(row[column]);
+      }
+      const cell = addElement(tableRow, "td", "", cellText);
+      cell.title = cellText;
+      cell.style.cssText = "white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis;";
+    }
+  });
+
+  if (rows.length > MAX_SHEET_ROWS || widestRow > MAX_SHEET_COLUMNS) {
+    addElement(
+      wrapper, "p", "small text-muted mt-2 mb-0",
+      "Showing the first " + MAX_SHEET_ROWS + " rows and " + MAX_SHEET_COLUMNS + " columns. Download the file to see everything."
+    );
+  }
+
+  return wrapper;
+}
+
+async function showSpreadsheetPreview(file, token) {
+  const loading = showPreviewMessage("Loading Excel preview...");
+
+  await loadScript(LIBRARY_URLS.xlsx);
+
+  const data = await file.arrayBuffer();
+  if (token !== previewToken) {
+    return;
+  }
+
+  // sheetRows: only the first rows of each sheet are read, so big files stay fast
+  const workbook = XLSX.read(new Uint8Array(data), { type: "array", sheetRows: MAX_SHEET_ROWS + 1 });
+  loading.remove();
+
+  if (workbook.SheetNames.length === 0) {
+    showPreviewMessage("This Excel file has no sheets.");
+    return;
+  }
+
+  const container = addElement(previewArea, "div", "w-100");
+  const tableArea = makeElement("div", "w-100");
+
+  // more than one sheet: a dropdown to choose the sheet
+  if (workbook.SheetNames.length > 1) {
+    const label = addElement(container, "label", "form-label small mb-1", "Sheet");
+    label.htmlFor = "sheet-select";
+
+    const select = addElement(container, "select", "form-select form-select-sm mb-3");
+    select.id = "sheet-select";
+    workbook.SheetNames.forEach(function (sheetName) {
+      const option = addElement(select, "option", "", sheetName);
+      option.value = sheetName;
+    });
+
+    select.addEventListener("change", function () {
+      tableArea.innerHTML = "";
+      tableArea.appendChild(buildSheetTable(workbook, select.value));
+    });
+  }
+
+  tableArea.appendChild(buildSheetTable(workbook, workbook.SheetNames[0]));
+  container.appendChild(tableArea);
+}
+
 function updatePdfToolbar() {
   if (currentPdf === null) {
     return;
   }
-
   pdfPageLabel.textContent = "Page " + currentPageNumber + " / " + currentPdf.numPages;
   pdfPrevButton.disabled = isRenderingPage || currentPageNumber <= 1;
   pdfNextButton.disabled = isRenderingPage || currentPageNumber >= currentPdf.numPages;
 }
 
-// Draws one PDF page on the canvas
+// draws one PDF page on the canvas
 async function renderPdfPage(pageNumber) {
   const pdf = currentPdf;
   const canvas = pdfCanvas;
 
-  if (pdf === null || isRenderingPage) {
-    return;
-  }
-  if (pageNumber < 1 || pageNumber > pdf.numPages) {
+  if (pdf === null || isRenderingPage || pageNumber < 1 || pageNumber > pdf.numPages) {
     return;
   }
 
@@ -1390,20 +1439,15 @@ async function renderPdfPage(pageNumber) {
   try {
     const page = await pdf.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1.3 });
-
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-
-    await page.render({
-      canvasContext: canvas.getContext("2d"),
-      viewport: viewport
-    }).promise;
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: viewport }).promise;
 
     if (currentPdf === pdf) {
       currentPageNumber = pageNumber;
     }
   } catch (error) {
-    // If the popup is already closed, there is no need to show an error
+    // if the popup is already closed, there is nothing to show
     if (currentPdf === pdf) {
       showMessage("Could not show this PDF page: " + getErrorText(error), "danger");
     }
@@ -1415,16 +1459,15 @@ async function renderPdfPage(pageNumber) {
   }
 }
 
-async function showPdfPreview(blob, token) {
+async function showPdfPreview(file, token) {
   if (!window.pdfjsLib) {
     throw new Error("PDF.js did not load. Check your internet connection.");
   }
 
-  // Read the file data and open it with PDF.js
-  const data = await blob.arrayBuffer();
+  const data = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
 
-  // If the popup was closed or changed in the meantime, close this PDF
+  // the popup was closed or changed in the meantime
   if (token !== previewToken) {
     pdf.destroy();
     return;
@@ -1434,36 +1477,26 @@ async function showPdfPreview(blob, token) {
   currentPageNumber = 1;
   isRenderingPage = false;
 
-  // Toolbar: Previous, page label, Next
-  const toolbar = makeElement("div", "pdf-toolbar");
+  const toolbar = addElement(previewArea, "div", "pdf-toolbar");
 
-  pdfPrevButton = makeElement("button", "btn btn-outline-secondary btn-sm", "Previous");
+  pdfPrevButton = addElement(toolbar, "button", "btn btn-outline-secondary btn-sm", "Previous");
   pdfPrevButton.type = "button";
   pdfPrevButton.addEventListener("click", function () {
     renderPdfPage(currentPageNumber - 1);
   });
 
-  pdfPageLabel = makeElement("span", "pdf-page-label", "");
+  pdfPageLabel = addElement(toolbar, "span", "pdf-page-label", "");
 
-  pdfNextButton = makeElement("button", "btn btn-outline-secondary btn-sm", "Next");
+  pdfNextButton = addElement(toolbar, "button", "btn btn-outline-secondary btn-sm", "Next");
   pdfNextButton.type = "button";
   pdfNextButton.addEventListener("click", function () {
     renderPdfPage(currentPageNumber + 1);
   });
 
-  toolbar.appendChild(pdfPrevButton);
-  toolbar.appendChild(pdfPageLabel);
-  toolbar.appendChild(pdfNextButton);
-
-  pdfCanvas = makeElement("canvas", "preview-canvas");
-
-  previewArea.appendChild(toolbar);
-  previewArea.appendChild(pdfCanvas);
-
+  pdfCanvas = addElement(previewArea, "canvas", "preview-canvas");
   await renderPdfPage(1);
 }
 
-// A simple message for preview errors
 function getPreviewErrorText(error) {
   if (error && error.name === "PasswordException") {
     return "This PDF is password-protected, so it cannot be previewed. Download it and open it in your PDF viewer.";
@@ -1474,21 +1507,31 @@ function getPreviewErrorText(error) {
   return "The preview could not be created: " + getErrorText(error) + " You can still download the file.";
 }
 
-// Shows the right preview for the file type
-async function renderPreview(record, token) {
+// picks the preview by the "preview" value of the file type
+async function renderPreview(record, file, token) {
   previewArea.innerHTML = "";
-  const extension = record.extension;
+
+  let kind = "none";
+  const type = findFileType(record.extension);
+  if (type) {
+    kind = type.preview;
+  }
 
   try {
-    if (extension === "pdf") {
-      await showPdfPreview(record.fileBlob, token);
-    } else if (extension === "png" || extension === "jpg" || extension === "jpeg") {
-      showImagePreview(record);
-    } else if (extension === "txt") {
-      await showTextPreview(record.fileBlob, token);
+    if (kind === "pdf") {
+      await showPdfPreview(file, token);
+    } else if (kind === "image") {
+      showImagePreview(record, file);
+    } else if (kind === "text") {
+      await showTextPreview(file, token);
+    } else if (kind === "markdown") {
+      await showMarkdownPreview(file, token);
+    } else if (kind === "docx") {
+      await showDocxPreview(file, token);
+    } else if (kind === "xlsx") {
+      await showSpreadsheetPreview(file, token);
     } else {
-      // Any other type: a clear message, never a broken preview
-      showPreviewMessage("A preview is not available for this file type. See the details and use the download button below.");
+      showPreviewMessage("A preview is not available for this file type. Use the Download button to open the file in another program.");
     }
   } catch (error) {
     if (token !== previewToken) {
@@ -1499,37 +1542,46 @@ async function renderPreview(record, token) {
   }
 }
 
-// Opens the preview popup
 async function openPreview(id) {
   try {
-    const record = await getDocumentById(id);
-    if (!record) {
-      await showMissingDocument();
+    const record = await getExistingRecord(id);
+    if (record === null) {
       return;
     }
-    if (!record.fileBlob) {
-      showMessage("The file for this document is missing or damaged, so it cannot be previewed.", "danger");
+
+    const file = await getFile(id);
+    if (!file) {
+      showMessage("The file of this document is missing, so it cannot be opened.", "danger");
       return;
     }
 
     previewToken = previewToken + 1;
     const myToken = previewToken;
     previewRecord = record;
+    previewFile = file;
 
     previewTitle.textContent = record.name;
     fillPreviewInfo(record);
+    previewArea.innerHTML = "";
     previewModal.show();
 
-    await renderPreview(record, myToken);
+    // very big files are not previewed (it could crash the tab), but they can be downloaded
+    if (record.size > MAX_PREVIEW_SIZE) {
+      showPreviewMessage(
+        "This file is too large to preview (" + formatSize(record.size) + "). Previews work for files up to " +
+        formatSize(MAX_PREVIEW_SIZE) + ". Use the Download button instead."
+      );
+    } else {
+      await renderPreview(record, file, myToken);
+    }
 
-    // After the preview, save "lastOpened" (the Recent view uses it)
-    await markAsOpened(id);
+    await markAsOpened(id);   // the Recent view uses this
   } catch (error) {
     showMessage("Could not open the preview: " + getErrorText(error), "danger");
   }
 }
 
-// Sets lastOpened to the current time. If this fails, the preview is not affected.
+// saves the time the document was opened. If this fails, the preview is not affected.
 async function markAsOpened(id) {
   try {
     const freshRecord = await getDocumentById(id);
@@ -1544,15 +1596,14 @@ async function markAsOpened(id) {
   }
 }
 
-// When the popup closes: revoke the temporary URL, close the PDF, reset the state
+// when the popup closes: free the temporary address, close the PDF, reset everything
 previewModalElement.addEventListener("hidden.bs.modal", function () {
-  previewToken = previewToken + 1;   // old running work will now stop
+  previewToken = previewToken + 1;   // old running work will stop
 
   if (currentPdf !== null) {
     currentPdf.destroy();
     currentPdf = null;
   }
-
   if (currentObjectUrl !== null) {
     URL.revokeObjectURL(currentObjectUrl);
     currentObjectUrl = null;
@@ -1561,6 +1612,7 @@ previewModalElement.addEventListener("hidden.bs.modal", function () {
   previewArea.innerHTML = "";
   previewInfo.innerHTML = "";
   previewRecord = null;
+  previewFile = null;
   pdfCanvas = null;
   pdfPrevButton = null;
   pdfNextButton = null;
@@ -1568,69 +1620,57 @@ previewModalElement.addEventListener("hidden.bs.modal", function () {
   isRenderingPage = false;
 });
 
-// ---------- Download ----------
-
-// File name for the download: display name + (if missing) the extension
-function getDownloadName(record) {
-  if (getExtension(record.name) === record.extension) {
-    return record.name;
-  }
-  return record.name + "." + record.extension;
-}
-
-// Downloads the real saved file (renaming only changes the name, never the content)
-function downloadCurrentFile() {
-  if (previewRecord === null) {
+// downloads the real saved file. Renaming only changes the name, never the content.
+downloadButton.addEventListener("click", function () {
+  if (previewRecord === null || previewFile === null) {
     return;
   }
-  downloadBlob(previewRecord.fileBlob, getDownloadName(previewRecord));
-}
 
-downloadButton.addEventListener("click", downloadCurrentFile);
+  let fileName = previewRecord.name;
+  if (getExtension(fileName) !== previewRecord.extension) {
+    fileName = fileName + "." + previewRecord.extension;
+  }
+  downloadBlob(previewFile, fileName);
+});
 
-// ====================================================
-// PART 11: BACKUP AND RESTORE
-// ====================================================
+// ---------- backup and restore ----------
 
-// Shows a result message inside the backup popup
 function showBackupResult(text, type) {
   backupResult.innerHTML = "";
-  const box = makeElement("div", "alert alert-" + type + " mb-0", text);
+  const box = addElement(backupResult, "div", "alert alert-" + type + " mb-0", text);
   box.setAttribute("role", "alert");
-  backupResult.appendChild(box);
 }
 
-// Opens the backup popup
-function openBackupModal() {
+async function openBackupModal() {
   backupResult.innerHTML = "";
-  backupSummary.textContent =
+  const summary =
     allDocuments.length + " document(s) in DocuNest, using " +
-    formatSize(getTotalSize(allDocuments)) + " of " + STORAGE_LIMIT_TEXT + ".";
+    formatSize(getTotalSize(allDocuments)) + " of the " + STORAGE_LIMIT_TEXT + " limit.";
+  backupSummary.textContent = summary;
   backupModal.show();
+
+  // ask the browser how much space it gives this site (only an estimate)
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      const estimate = await navigator.storage.estimate();
+      backupSummary.textContent =
+        summary + " The browser allows this site about " + formatSize(estimate.quota) + " in total (estimate).";
+    }
+  } catch (error) {
+    console.warn("Could not read the browser storage estimate:", error);
+  }
 }
 
-// Makes the backup entry for one document.
-// Notice: fileBlob (the real file) is NOT included.
+// copies the backup fields of a document (the real file is not copied)
 function makeBackupItem(doc) {
-  return {
-    id: doc.id,
-    name: doc.name,
-    originalName: doc.originalName,
-    type: doc.type,
-    extension: doc.extension,
-    size: doc.size,
-    category: doc.category,
-    tags: doc.tags || [],
-    dateAdded: doc.dateAdded,
-    lastOpened: doc.lastOpened || null,
-    favorite: doc.favorite === true,
-    notes: doc.notes || ""
-  };
+  const item = {};
+  BACKUP_FIELDS.forEach(function (field) {
+    item[field] = doc[field];
+  });
+  return item;
 }
 
-// ---------- Export ----------
-
-function exportMetadata() {
+exportButton.addEventListener("click", function () {
   if (allDocuments.length === 0) {
     showBackupResult("There are no documents to export yet.", "warning");
     return;
@@ -1645,29 +1685,22 @@ function exportMetadata() {
     documents: allDocuments.map(makeBackupItem)
   };
 
-  // JSON.stringify turns the object into text. (null, 2) makes it easy to read.
-  const text = JSON.stringify(backup, null, 2);
-  const blob = new Blob([text], { type: "application/json" });
-
-  const today = new Date().toISOString().slice(0, 10);   // for example "2026-10-26"
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const today = new Date().toISOString().slice(0, 10);
   downloadBlob(blob, "docunest-metadata-backup-" + today + ".json");
 
   showBackupResult(
     backup.documents.length + " document(s) exported. Remember: this file has the details only, not the actual files.",
     "success"
   );
-}
+});
 
-exportButton.addEventListener("click", exportMetadata);
-
-// ---------- Restore ----------
-
-// A key that identifies a document: original file name + size
+// a document is matched by original file name + size
 function makeMatchKey(originalName, size) {
   return originalName + "|" + size;
 }
 
-// Checks the overall format of the backup. Returns "" if fine, otherwise a message.
+// returns "" if the backup format is fine, otherwise a message
 function checkBackupFormat(data) {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return "This file is not a DocuNest backup.";
@@ -1684,25 +1717,8 @@ function checkBackupFormat(data) {
   return "";
 }
 
-// Cleans a list of tags from the backup (uses the same rules as the edit popup)
-function cleanTags(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const onlyText = value.filter(function (tag) {
-    return typeof tag === "string";
-  });
-
-  return parseTags(onlyText.join(","))
-    .filter(function (tag) {
-      return tag.length <= MAX_TAG_LENGTH;
-    })
-    .slice(0, MAX_TAGS);
-}
-
-// Checks and cleans one backup entry. Returns null if the entry is not usable.
-// We never trust the file: every value is checked before it is used.
+// checks and cleans one backup entry. Returns null if it cannot be used.
+// The backup file is not trusted, so every value is checked.
 function cleanBackupItem(item) {
   if (!item || typeof item !== "object") {
     return null;
@@ -1711,38 +1727,57 @@ function cleanBackupItem(item) {
     return null;
   }
 
-  const name = typeof item.name === "string" ? item.name.trim().slice(0, 100) : "";
+  let name = item.originalName;
+  if (typeof item.name === "string" && item.name.trim() !== "") {
+    name = item.name.trim().slice(0, 100);
+  }
+
+  let category = "Other";
+  if (categories.includes(item.category)) {
+    category = item.category;
+  }
+
+  let tags = [];
+  if (Array.isArray(item.tags)) {
+    const onlyText = item.tags.filter(function (tag) {
+      return typeof tag === "string";
+    });
+    tags = parseTags(onlyText.join(",")).filter(function (tag) {
+      return tag.length <= MAX_TAG_LENGTH;
+    }).slice(0, MAX_TAGS);
+  }
+
+  let notes = "";
+  if (typeof item.notes === "string") {
+    notes = item.notes.trim().slice(0, 500);
+  }
 
   return {
     originalName: item.originalName,
     size: item.size,
-    name: name !== "" ? name : item.originalName,
-    category: categories.includes(item.category) ? item.category : "Other",
-    tags: cleanTags(item.tags),
-    notes: typeof item.notes === "string" ? item.notes.trim().slice(0, 500) : "",
+    name: name,
+    category: category,
+    tags: tags,
+    notes: notes,
     favorite: item.favorite === true
   };
 }
 
-// Reads a backup file and restores the details after the user confirms
 async function restoreMetadata(file) {
-
   if (file.size > MAX_BACKUP_FILE_SIZE) {
     showBackupResult("This file is too large to be a metadata backup (maximum 5 MB).", "danger");
     return;
   }
 
-  // Step 1: read the file and turn the text into data
+  // read the text and turn it into data
   let data;
   try {
-    const text = await file.text();
-    data = JSON.parse(text);
+    data = JSON.parse(await file.text());
   } catch (error) {
     showBackupResult("This file is not valid JSON, so it cannot be restored.", "danger");
     return;
   }
 
-  // Step 2: check the format and version
   const formatProblem = checkBackupFormat(data);
   if (formatProblem !== "") {
     showBackupResult(formatProblem, "danger");
@@ -1750,18 +1785,15 @@ async function restoreMetadata(file) {
   }
 
   try {
-    // Step 3: match backup entries with the documents that exist now
-    const currentRecords = (await getAllDocuments()).filter(function (doc) {
-      return doc.fileBlob;
-    });
-
-    const lookup = new Map();   // key -> document
+    // match the backup entries with the documents that exist now
+    const currentRecords = await getAllDocuments();
+    const lookup = new Map();
     currentRecords.forEach(function (doc) {
       lookup.set(makeMatchKey(doc.originalName, doc.size), doc);
     });
 
-    const updates = [];                 // documents that will be changed
-    const handledKeys = new Set();      // keys already used (to find duplicates in the file)
+    const updates = [];
+    const handledKeys = new Set();   // to find duplicate entries inside the file
     let notFoundCount = 0;
     let invalidCount = 0;
     let duplicateCount = 0;
@@ -1786,7 +1818,7 @@ async function restoreMetadata(file) {
         return;
       }
 
-      // Only these details change. fileBlob and originalName stay the same.
+      // only these details change. originalName and the file stay the same.
       doc.name = clean.name;
       doc.category = clean.category;
       doc.tags = clean.tags;
@@ -1795,7 +1827,6 @@ async function restoreMetadata(file) {
       updates.push(doc);
     });
 
-    // Step 4: if nothing matches, stop with a helpful message
     if (updates.length === 0) {
       showBackupResult(
         "Nothing to restore. None of the " + data.documents.length +
@@ -1806,7 +1837,7 @@ async function restoreMetadata(file) {
       return;
     }
 
-    // Step 5: ask for confirmation. Nothing is changed before this.
+    // ask first. Nothing is changed before this.
     const sure = confirm(
       "Restore will replace the name, category, tags, notes and favorite status of " +
       updates.length + " existing document(s) with the values from the backup.\n\n" +
@@ -1818,7 +1849,6 @@ async function restoreMetadata(file) {
       return;
     }
 
-    // Step 6: save all changes in ONE transaction (all or nothing)
     await updateManyDocuments(updates);
     await showDocuments();
 
@@ -1834,15 +1864,13 @@ async function restoreMetadata(file) {
   }
 }
 
-// The Restore button opens the file chooser
 restoreButton.addEventListener("click", function () {
   restoreInput.click();
 });
 
-// When a backup file is chosen, start the restore
 restoreInput.addEventListener("change", function () {
   const file = restoreInput.files[0];
-  restoreInput.value = "";   // reset, so the same file can be chosen again
+  restoreInput.value = "";
 
   if (!file) {
     showBackupResult("No file was selected.", "warning");
@@ -1851,11 +1879,8 @@ restoreInput.addEventListener("change", function () {
   restoreMetadata(file);
 });
 
-// ====================================================
-// PART 12: WHEN THE PAGE STARTS
-// ====================================================
+// ---------- start ----------
 
-// Opens the database, then shows the saved documents
 async function startDatabase() {
   try {
     await openDatabase();
@@ -1864,18 +1889,18 @@ async function startDatabase() {
     dbError.textContent =
       "The database could not be opened: " + getErrorText(error) +
       " Documents cannot be saved or shown.";
-    dbError.classList.remove("d-none");
+    setVisible(dbError, true);
 
-    // If there is no database, turn off the import buttons
     importButtons.forEach(function (button) {
       button.disabled = true;
     });
   }
 }
 
+updateSupportedTypes();
 showCategoryButtons();
 fillCategoryDropdown();
-showTypeBreakdown([]);   // shows the empty message until documents load
+showTypeBreakdown([]);
 startDatabase();
 
-console.log("DocuNest: Phase 7 script loaded (with file type dashboard).");
+console.log("DocuNest started.");
