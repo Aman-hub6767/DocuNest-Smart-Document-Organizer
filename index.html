@@ -150,7 +150,7 @@
           </div>
         </div>
 
-        <!-- Storage by file type (NEW) -->
+        <!-- Storage by file type -->
         <section class="section-box">
           <h2 class="section-title">Storage by File Type</h2>
           <div id="type-breakdown"></div>
@@ -389,7 +389,16 @@
     src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
   </script>
 
-  <!-- Our own JavaScript (always last) -->
-  <script src="script.js"></script>
+  <!-- Our own JavaScript (keep this order. main.js must be last) -->
+  <script src="config.js"></script>
+  <script src="dom.js"></script>
+  <script src="helpers.js"></script>
+  <script src="db.js"></script>
+  <script src="ui.js"></script>
+  <script src="import.js"></script>
+  <script src="edit.js"></script>
+  <script src="preview.js"></script>
+  <script src="backup.js"></script>
+  <script src="main.js"></script>
 </body>
 </html>
