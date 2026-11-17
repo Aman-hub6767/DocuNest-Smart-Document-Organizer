@@ -3,11 +3,6 @@
 DocuNest is a web app that helps you keep your documents in one place. You can import files, sort them into categories, add tags and notes, search, preview and download them. Everything runs in your browser. There is no server, no login and no database server.
 
 
-- Student: `<your name>`
-- College: `<your college>`
-- Guide: `<your guide's name>`
-- Year: `<year>`
-
 ## Features
 
 - Import many files at once (with checks for type, empty files, size, duplicates and storage limit)
