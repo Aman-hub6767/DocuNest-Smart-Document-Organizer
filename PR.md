@@ -2,13 +2,6 @@
 
 **Project Report**
 
-Submitted by: \[Your Name\]\
-Enrollment No.: \[Your Enrollment Number\]\
-Course: Diploma in Computer Science Engineering\
-Institute: \[Your Institute Name\]\
-Guide: \[Guide Name\]\
-Year: 2026
-
 ## 1. Abstract
 
 DocuNest is a frontend-only web application that helps a user store, organize, search and preview personal documents in the browser. It does not need a server or a login. All files and their details are saved on the user's own device with IndexedDB, so nothing is uploaded anywhere. The project is built with HTML, CSS, JavaScript and Bootstrap 5. It supports PDF, PNG, JPG, JPEG, TXT, Markdown, DOC, DOCX and XLSX files, and gives categories, tags, notes, favorites, recent history, previews and a metadata backup.
